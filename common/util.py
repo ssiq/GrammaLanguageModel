@@ -312,5 +312,13 @@ def unique_adjacent(seq: typing.Iterator):
             pre = token
             yield pre
 
+
+def group_df_to_grouped_list(data_df, groupby_key):
+    grouped = data_df.groupby(groupby_key)
+    group_list = []
+    for name, group in grouped:
+        group_list += [group]
+    return group_list
+
 if __name__ == '__main__':
     make_dir('data', 'cache_data')
