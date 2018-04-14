@@ -1,7 +1,7 @@
 from read_data.read_filter_data_records import read_distinct_problem_user_compile_success_c_records
 from common.util import disk_cache
 from common.constants import CACHE_DATA_PATH
-
+from common.analyse_include_util import extract_include_from_code, remove_include
 
 
 def filter_frac(data_df, frac):
@@ -16,6 +16,7 @@ def filter_frac(data_df, frac):
     print('main_df: {}'.format(len(main_df)))
     return main_df, split_df
 
+
 @disk_cache(basename='read_distinct_problem_user_ac_c99_code_dataset', directory=CACHE_DATA_PATH)
 def read_distinct_problem_user_ac_c99_code_dataset():
     data_df = read_distinct_problem_user_compile_success_c_records()
@@ -26,9 +27,36 @@ def read_distinct_problem_user_ac_c99_code_dataset():
     return train_df, vaild_df, test_df
 
 
+@disk_cache(basename='read_filtered_distinct_problem_user_ac_c99_code_dataset', directory=CACHE_DATA_PATH)
+def read_filtered_distinct_problem_user_ac_c99_code_dataset():
+    maintain_header_file = {'stdio.h', 'stdlib.h', 'string.h', 'math.h'}
+
+    def filter_header(df):
+
+        def not_contain_other_header(code):
+            for t in extract_include_from_code(code):
+                if t not in maintain_header_file:
+                    return False
+            return True
+
+        return df[df['code'].map(not_contain_other_header)]
+    return [filter_header(df) for df in read_distinct_problem_user_ac_c99_code_dataset()]
+
+
+@disk_cache(basename='read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset', directory=CACHE_DATA_PATH)
+def read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset():
+    def remove_include_df(df):
+        df['code'] = df['code'].map(remove_include)
+        return df
+
+    return [remove_include_df(df) for df in read_filtered_distinct_problem_user_ac_c99_code_dataset()]
+
+
 if __name__ == '__main__':
     # data_df = read_distinct_problem_user_compile_success_c_records()
     # print('all data df', len(data_df))
     # main_df, split_df = filter_frac(data_df, 0.1)
     # print('train_df length: {}, split_df length: {}'.format(len(main_df), len(split_df)))
     read_distinct_problem_user_ac_c99_code_dataset()
+    read_filtered_distinct_problem_user_ac_c99_code_dataset()
+    read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()
