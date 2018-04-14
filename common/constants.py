@@ -1,5 +1,5 @@
 import os
-from config import root, scrapyOJ_path
+from config import root, scrapyOJ_path, cache_path
 
 # scrapyOJ db path. all OJ data
 scrapyOJ_DB_PATH = scrapyOJ_path
@@ -8,7 +8,7 @@ scrapyOJ_DB_PATH = scrapyOJ_path
 # project dir path
 ROOT_PATH = root
 DATA_PATH = os.path.join(ROOT_PATH, 'data')
-CACHE_DATA_PATH = os.path.join(DATA_PATH, 'cache_data')
+CACHE_DATA_PATH = cache_path
 TMP_FILE_PATH = os.path.join(ROOT_PATH, 'tmp')
 
 
