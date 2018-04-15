@@ -3,6 +3,7 @@ import functools
 import itertools
 import os
 import pickle
+import types
 from multiprocessing import Pool
 import typing
 import hashlib
@@ -227,24 +228,16 @@ def padded(x, deepcopy=False):
     else:
         return x
 
-def batch_holder(*data: typing.List, batch_size=32, epoches=10, is_shuffle=True):
+def batch_holder(*data: typing.List, batch_size=32,):
     """
     :param data:
     :return:
     """
     def iterator():
-
         def one_epoch():
-            from sklearn.utils import shuffle
-            if is_shuffle:
-                i_data = shuffle(*data)
-            else:
-                i_data = data
-            padded_with_copy = lambda x: padded(x, deepcopy=True)
-            i_data = list(map(lambda x:map(padded_with_copy, more_itertools.chunked(x, batch_size)), i_data))
+            i_data = list(map(lambda x: more_itertools.chunked(x, batch_size), data))
             return zip(*i_data)
-        for i ,m in enumerate(more_itertools.repeatfunc(one_epoch, times=epoches)):
-            print("new epoch {} total {}".format(i, epoches))
+        for i ,m in enumerate(more_itertools.repeatfunc(one_epoch, times=1)):
             for t in m:
                 yield t
 
@@ -263,14 +256,6 @@ def train_test_split(data, test_size):
     train_data = [data[i] for i in range(0, d_len, 2)]
     test_data = [data[i] for i in range(1, d_len, 2)]
     return train_data, test_data
-
-def set_cuda_devices(deviceid:int=0):
-    '''
-    set video card which cuda uses. if you want to use both card, do not call this function.
-    :param deviceid: video card id. default is 0
-    :return:
-    '''
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(deviceid)
 
 def get_size(obj, seen=None):
     """Recursively finds size of objects"""
@@ -319,6 +304,36 @@ def group_df_to_grouped_list(data_df, groupby_key):
     for name, group in grouped:
         group_list += [group]
     return group_list
+
+def maintain_function_co_firstlineno(ori_fn):
+    """
+    This decorator is used to make the decorated function's co_firstlineno the same as the ori_fn
+    """
+
+    def wrapper(fn):
+        wrapper_code = fn.__code__
+        fn.__code__ = types.CodeType(
+            wrapper_code.co_argcount,
+            wrapper_code.co_kwonlyargcount,
+            wrapper_code.co_nlocals,
+            wrapper_code.co_stacksize,
+            wrapper_code.co_flags,
+            wrapper_code.co_code,
+            wrapper_code.co_consts,
+            wrapper_code.co_names,
+            wrapper_code.co_varnames,
+            wrapper_code.co_filename,
+            wrapper_code.co_name,
+            ori_fn.__code__.co_firstlineno,
+            wrapper_code.co_lnotab,
+            wrapper_code.co_freevars,
+            wrapper_code.co_cellvars
+        )
+
+        return fn
+
+    return wrapper
+
 
 if __name__ == '__main__':
     make_dir('data', 'cache_data')

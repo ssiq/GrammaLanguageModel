@@ -1,6 +1,8 @@
 import re
 import pycparser
 
+from c_code_processer.buffered_clex import BufferedCLex
+
 
 def check_include_between_two_code(code1, code2):
     names1 = extract_include_from_code(code1)
@@ -71,6 +73,7 @@ def extract_include_name(include):
 
 
 def tokenize(code: str):
-    parser = pycparser.CParser(lexer=BufferedCLex)
-    parser.parse(code)
-    return parser.clex.tokens_buffer
+    lex = BufferedCLex(lambda x1, x2, x3:None, lambda: None, lambda: None, lambda x:None)
+    lex.build()
+    lex.input(code)
+    return lex.tokens_buffer

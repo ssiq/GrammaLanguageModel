@@ -1,5 +1,5 @@
-from pycparser.pycparser.c_lexer import CLexer
-from pycparser.pycparser.ply.lex import TOKEN
+from pycparser.c_lexer import CLexer
+from pycparser.ply.lex import TOKEN
 from common.util import maintain_function_co_firstlineno
 
 
@@ -20,10 +20,6 @@ class BufferedCLex(CLexer):
             self._tokens_index += 1
         else:
             self.last_token = None
-
-        if self.last_token is not None:
-            if not self.is_in_system_header(self.last_token.lineno):
-                self.add_history_fn()
 
         if self.last_token is not None:
             if self.last_token.type == 'LBRACE':
