@@ -162,13 +162,20 @@ def train_and_evaluate_n_gram_language_model(embedding_dim,
     print("The model {} best valid perplexity is {} and test perplexity is {}".
           format(saved_name, best_valid_perplexity, best_test_perplexity))
 
+
 if __name__ == '__main__':
-    train_and_evaluate_n_gram_language_model(embedding_dim=100, context_size=3, layer_num=3,
-                                             hidden_size=100, learning_rate=0.001, batch_size=128,
-                                             epoches=10, saved_name="neural_n_gram_1.pkl")
-    train_and_evaluate_n_gram_language_model(embedding_dim=100, context_size=4, layer_num=3,
-                                             hidden_size=100, learning_rate=0.001, batch_size=128,
-                                             epoches=10, saved_name="neural_n_gram_2.pkl")
-    train_and_evaluate_n_gram_language_model(embedding_dim=100, context_size=5, layer_num=3,
-                                             hidden_size=100, learning_rate=0.001, batch_size=128,
-                                             epoches=10, saved_name="neural_n_gram_3.pkl")
+    # train_and_evaluate_n_gram_language_model(embedding_dim=100, context_size=3, layer_num=3,
+    #                                          hidden_size=100, learning_rate=0.001, batch_size=128,
+    #                                          epoches=10, saved_name="neural_n_gram_1.pkl")
+    # The model neural_n_gram_1.pkl best valid perplexity is 6.904112339019775 and test perplexity is 6.936566352844238
+
+    # train_and_evaluate_n_gram_language_model(embedding_dim=100, context_size=4, layer_num=3,
+    #                                          hidden_size=100, learning_rate=0.001, batch_size=128,
+    #                                          epoches=10, saved_name="neural_n_gram_2.pkl")
+    # The model neural_n_gram_2.pkl best valid perplexity is 6.278172492980957 and test perplexity is 6.302302837371826
+
+    # train_and_evaluate_n_gram_language_model(embedding_dim=100, context_size=5, layer_num=3,
+    #                                          hidden_size=100, learning_rate=0.001, batch_size=128,
+    #                                          epoches=10, saved_name="neural_n_gram_3.pkl")
+    # The model neural_n_gram_3.pkl best valid perplexity is 5.920135021209717 and test perplexity is 5.940866947174072
+    pass
