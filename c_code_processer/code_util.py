@@ -4,7 +4,7 @@ import collections
 import inspect
 import typing
 
-import pycparser
+from c_code_processer.pycparser import pycparser
 import more_itertools
 import cytoolz as toolz
 
@@ -119,7 +119,7 @@ class Production(object):
         return self._right_id
 
     def __str__(self):
-        return "{}:{}".format(self.left, " ".join(self.right))
+        return "{}    : {}".format(self.left, " ".join(self.right))
 
     def __eq__(self, other):
         if not isinstance(other, Production):
@@ -148,6 +148,7 @@ class ProductionVocabulary(object):
         self._id_production_map = self._get_set_id_map(self._production_list)
         self._production_id_map = util.reverse_dict(self._id_production_map)
         self._token_derivate_map = toolz.groupby(lambda x: x.left_id, self._production_list)
+        self._string_production_map = {str(production): production for production in self._production_list}
         self._terminal_set = set(i.strip() for i in pycparser.c_lexer.CLexer.tokens)
 
     def _get_set_id_map(self, s):
@@ -161,8 +162,29 @@ class ProductionVocabulary(object):
         token = self._id_token_map[token_id]
         return self._token_derivate_map[token]
 
+    def get_production_by_production_string(self, doc):
+        """
+        :param doc: a production string
+        :return: a list of production in the production string
+        """
+        production_str_list = split_production_string(doc)
+        productions = []
+        for left, right in production_str_list:
+            productions.append(self._string_production_map["{}    : {}".format(left, " ".join(right))])
+        return productions
+
     def __str__(self):
         return "\n".join([str(production) for production in self._production_list])
+
+
+def split_production_string(s: str):
+    left, rights = s.split(":")
+    left = left.strip()
+    rights = rights.split("|")
+    rights = [re.split("\s+", right.strip()) for right in rights]
+    lefts = [left] * len(rights)
+    productions = list(zip(lefts, rights))
+    return productions
 
 
 def get_all_c99_production_vocabulary():
@@ -170,15 +192,6 @@ def get_all_c99_production_vocabulary():
     parser = pycparser.CParser()
     parse_fn_tuple_list = filter(lambda x: is_p_fn(x[0]) and x[0] != "p_error", inspect.getmembers(parser))
     production_list = map(lambda x: x[1].__doc__, parse_fn_tuple_list)
-
-    def split_production_string(s: str):
-        left, rights = s.split(":")
-        left = left.strip()
-        rights = rights.split("|")
-        rights = [re.split("\s+", right.strip()) for right in rights]
-        lefts = [left] * len(rights)
-        productions = list(zip(lefts, rights))
-        return productions
 
     production_list = list(more_itertools.flatten(list(map(split_production_string, production_list))))
 
