@@ -7,7 +7,7 @@ import unittest
 
 sys.path[0:0] = ['.', '..']
 
-from c_code_processer.monitored_c_parser import MonitoredParser
+from c_code_processer.code_util import MonitoredParser
 from c_code_processer.pycparser.pycparser.c_ast import *
 from c_code_processer.pycparser.pycparser.c_parser import CParser, Coord, ParseError
 

@@ -1,5 +1,5 @@
-from pycparser.c_lexer import CLexer
-from pycparser.ply.lex import TOKEN
+from c_code_processer.pycparser.pycparser.c_lexer import CLexer
+from c_code_processer.pycparser.pycparser.ply.lex import TOKEN
 from common.util import maintain_function_co_firstlineno
 
 

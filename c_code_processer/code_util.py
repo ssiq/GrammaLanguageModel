@@ -1,7 +1,10 @@
+import abc
 import re
 import collections
+import copy
 
 import inspect
+import types
 import typing
 
 from c_code_processer.pycparser import pycparser
@@ -9,6 +12,8 @@ import more_itertools
 import cytoolz as toolz
 
 from c_code_processer.buffered_clex import BufferedCLex
+from c_code_processer.pycparser.pycparser import CParser
+from c_code_processer.pycparser.pycparser.ply.yacc import YaccProduction
 from common import util
 
 
@@ -150,6 +155,7 @@ class ProductionVocabulary(object):
         self._token_derivate_map = toolz.groupby(lambda x: x.left_id, self._production_list)
         self._string_production_map = {str(production): production for production in self._production_list}
         self._terminal_set = set(i.strip() for i in pycparser.c_lexer.CLexer.tokens)
+        self._terminal_id_set = set(self._token_id_map[t] for t in self._terminal_set)
 
     def _get_set_id_map(self, s):
         s = sorted(s, key=lambda x: str(x))
@@ -173,6 +179,12 @@ class ProductionVocabulary(object):
             productions.append(self._string_production_map["{}    : {}".format(left, " ".join(right))])
         return productions
 
+    def is_ternimal(self, i):
+        return i in self._terminal_id_set
+
+    def get_token_id(self, token):
+        return self._token_id_map[token]
+
     def __str__(self):
         return "\n".join([str(production) for production in self._production_list])
 
@@ -184,6 +196,7 @@ def split_production_string(s: str):
     rights = [re.split("\s+", right.strip()) for right in rights]
     lefts = [left] * len(rights)
     productions = list(zip(lefts, rights))
+    productions = [(left, [] if right==[''] else right) for left, right in productions]
     return productions
 
 
@@ -200,5 +213,226 @@ def get_all_c99_production_vocabulary():
     return production_vocabulary
 
 
+class ParseNode(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def is_leaf(self):
+        """
+        :return: True if this is a leaf node, else False
+        """
+
+    @property
+    @abc.abstractmethod
+    def type_id(self):
+        """
+        :return: The id in the left of the production or the token type id in the leaf node
+        """
+
+    @property
+    @abc.abstractmethod
+    def type_string(self):
+        """
+        :return: The string in the left of the production or the token type string in the leaf node
+        """
+
+
+class ProductionNode(ParseNode):
+    def __init__(self,
+                 production: Production,
+                 ast_node):
+        self._ast_node = ast_node
+        self._production = production
+        self._right_map = dict(zip(production.right, production.right_id))
+        self._children_nodes = {}
+
+    def is_leaf(self):
+        return False
+
+    @property
+    def production(self):
+        return self._production
+
+    @property
+    def type_id(self):
+        return self.production.left_id
+
+    @property
+    def type_string(self):
+        return self._production.left
+
+    @property
+    def children(self):
+        return [self._children_nodes[right_id] for right_id in self.production.right_id]
+
+    def is_all_filled(self):
+        for right_id in self.production.right_id:
+            if right_id not in self._children_nodes:
+                return False
+        return True
+
+    def _check_item(self, item):
+        if isinstance(item, str):
+            item = self._right_map[item]
+        elif isinstance(item, int):
+            pass
+        else:
+            raise TypeError("The type of item in ParseNode should be int or str")
+        if item not in self.production.right_id:
+            raise KeyError("The item is not in the production right")
+        return item
+
+    def __getitem__(self, item):
+        item = self._check_item(item)
+        return self._children_nodes[item]
+
+    def __setitem__(self, key, value):
+        item = self._check_item(key)
+        self._children_nodes[item] = value
+
+
+class LeafParseNode(ParseNode):
+    @property
+    def type_id(self):
+        return self._token_id
+
+    @property
+    def type_string(self):
+        return self._token
+
+    def __init__(self, type_string, value, type_id):
+        self._token = type_string
+        self._token_id = type_id
+        self._value = value
+
+    def is_leaf(self):
+        return True
+
+    @property
+    def value(self):
+        return self._value
+
+
+def show_production_node(node):
+    prefix_tab = " "
+    stack = [("", node)]
+    while stack:
+        tab, node = stack.pop()
+        next_tab = tab + prefix_tab
+        print(tab+node.type_string)
+        if node.is_leaf():
+            continue
+        else:
+            for child in reversed(node.children):
+                stack.append((next_tab, child))
+
+
+class MonitoredParser(object):
+    def __init__(self,
+                 lex_optimize=True,
+                 lexer=BufferedCLex,
+                 lextab='pycparser.lextab',
+                 yacc_optimize=True,
+                 yacctab='pycparser.yacctab',
+                 yacc_debug=False,
+                 taboutputdir='',
+                 ):
+        self._lex_optimize = lex_optimize
+        self._lexer = lexer
+        self._lextab = lextab
+        self._yacc_optimize = yacc_optimize
+        self._yacctab = yacctab
+        self._yacc_debug = yacc_debug
+        self._taboutputdir = taboutputdir
+        self._parser = self._new_parser()
+
+    def _new_parser(self):
+        parser = CParser()
+        is_parse_fn = create_is_p_fn()
+        parse_fn_tuple_list = filter(lambda x: is_parse_fn(x[0]) and x[0] != "p_error", inspect.getmembers(parser))
+        production_vocabulary = get_all_c99_production_vocabulary()
+
+        def patch_fn(fn, doc, name, production):
+            def wrapper(parse_self, p):
+                """
+                :param parse_self:
+                :type p: c_code_processer.pycparser.pycparser.ply.yacc.YaccProduction
+                :return:
+                """
+                cached_p = p[1:]
+                for i, right_id in enumerate(production.right_id, start=1):
+                    p[i] = p[i] if production_vocabulary.is_ternimal(right_id) else p[i][0]
+
+                res = fn(p)
+                for i, cache in enumerate(cached_p, start=1):
+                    p[i] = cache
+                left_node = ProductionNode(production, p[0])
+                for i, (right_id, right)  in enumerate(zip(production.right_id, production.right), start=1):
+                    if production_vocabulary.is_ternimal(right_id):
+                        value = p[i]
+                        print("terminal token:{}".format(value))
+                        left_node[right_id] = LeafParseNode(right,
+                                                            value,
+                                                            right_id)
+                    else:
+                        left_node[right_id] = p[i][1]
+                p[0] = (p[0], left_node)
+                return res
+
+            wrapper.__name__ = name
+            wrapper.__doc__ = doc
+            return wrapper
+
+        for k, v in parse_fn_tuple_list:
+            # print("{}:{}".format(k, v))
+            productions = production_vocabulary.get_production_by_production_string(v.__doc__)
+            for i, production in enumerate(productions):
+                name = k if i == 0 else k+str(i)
+                new_method = types.MethodType(patch_fn(v, str(production), name, production), parser)
+                setattr(parser, name, new_method)
+        parser.build(
+            self._lex_optimize,
+            self._lexer,
+            self._lextab,
+            self._yacc_optimize,
+            self._yacctab,
+            self._yacc_debug
+        )
+        return parser
+
+    def _parse(self, text, filename='', debuglevel=0):
+        return self._parser.parse(text, filename, debuglevel)
+
+    def parse(self, text, filename='', debuglevel=0):
+        """
+        :param text: the code string
+        :return: the ast
+        """
+        return self._parse(text, filename, debuglevel)[0]
+
+    def parse_get_production_list_and_token_list(self, code):
+        """
+        :param code: the code string
+        :return: the parse tree , the ast, the tokens
+        """
+        final_ast = self._parse(code)
+        print(final_ast)
+        tokens = [t[0] for t in self._parser.clex.tokens_buffer]
+        return final_ast[1], final_ast[0], tokens
+
+    # def __getattr__(self, item):
+    #     return getattr(self._parser, item)
+
+
 if __name__ == '__main__':
     print(get_all_c99_production_vocabulary())
+    monitor = MonitoredParser(lex_optimize=False,
+                yacc_debug=True,
+                yacc_optimize=False,
+                yacctab='yacctab')
+    code = """
+        int add(int a, int b)
+        {
+            return a+b*c;
+        }
+        """
+    show_production_node(monitor.parse_get_production_list_and_token_list(code)[0])
+
