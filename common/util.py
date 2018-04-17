@@ -192,7 +192,7 @@ def convert_to_list(s):
 def sequence_sum(itr):
     return sum(itr)
 
-def padded_code_new(batch_code):
+def padded_code_new(batch_code, fill_value):
     if not isinstance(batch_code, list):
         return batch_code
     elif not isinstance(batch_code[0], list):
@@ -204,7 +204,7 @@ def padded_code_new(batch_code):
             return batch_code
         elif not isinstance(batch_root[0], list):
             return batch_code
-        fill_value = 0
+        fill_value = fill_value
         if isinstance(batch_root[0][0], list):
             fill_value = []
         max_len = max(map(len, batch_root))
@@ -219,14 +219,14 @@ def padded_code_new(batch_code):
                 tmp.append(s)
         batch_root = tmp
 
-def padded(x, deepcopy=False):
+def padded(x, deepcopy=False, fill_value=0):
     import copy
     if deepcopy:
         x = copy.deepcopy(x)
     if not isinstance(x, list):
         return x
     elif isinstance(x[0], list):
-        return padded_code_new(x)
+        return padded_code_new(x, fill_value=fill_value)
     else:
         return x
 
