@@ -214,6 +214,25 @@ def get_all_c99_production_vocabulary():
 
 
 class ParseNode(metaclass=abc.ABCMeta):
+
+    def __init__(self):
+        self._parent_node = None
+
+    @property
+    def parent_node(self):
+        """
+        :return: The reference of the parent node
+        """
+        return self._parent_node
+
+    @parent_node.setter
+    def parent_node(self, n):
+        """
+        :param n: The parent node
+        :return: None
+        """
+        self._parent_node = n
+
     @abc.abstractmethod
     def is_leaf(self):
         """
@@ -236,9 +255,8 @@ class ParseNode(metaclass=abc.ABCMeta):
 
 
 class ProductionNode(ParseNode):
-    def __init__(self,
-                 production: Production,
-                 ast_node):
+    def __init__(self, production: Production, ast_node):
+        super().__init__()
         self._ast_node = ast_node
         self._production = production
         self._right_map = dict(zip(production.right, production.right_id))
@@ -299,6 +317,7 @@ class LeafParseNode(ParseNode):
         return self._token
 
     def __init__(self, type_string, value, type_id):
+        super().__init__()
         self._token = type_string
         self._token_id = type_id
         self._value = value
@@ -309,6 +328,9 @@ class LeafParseNode(ParseNode):
     @property
     def value(self):
         return self._value
+
+
+Token = collections.namedtuple("Token", ["type", "value"])
 
 
 def show_production_node(node):
@@ -365,14 +387,17 @@ class MonitoredParser(object):
                 for i, cache in enumerate(cached_p, start=1):
                     p[i] = cache
                 left_node = ProductionNode(production, p[0])
-                for i, (right_id, right)  in enumerate(zip(production.right_id, production.right), start=1):
+                for i, (right_id, right) in enumerate(zip(production.right_id, production.right), start=1):
                     if production_vocabulary.is_ternimal(right_id):
-                        value = p[i]
-                        left_node[right_id] = LeafParseNode(right,
-                                                            value,
-                                                            right_id)
+                        value = p[i].value
+                        child_node = LeafParseNode(right,
+                                                   value,
+                                                   right_id)
                     else:
-                        left_node[right_id] = p[i][1]
+                        child_node = p[i][1]
+
+                    child_node.parent_node = left_node
+                    left_node[right_id] = child_node
                 p[0] = (p[0], left_node)
                 return res
 
@@ -413,7 +438,7 @@ class MonitoredParser(object):
         :return: the parse tree , the ast, the tokens
         """
         final_ast = self._parse(code)
-        tokens = [t[0] for t in self._parser.clex.tokens_buffer]
+        tokens = [Token(value=t[0].value, type=t[0].type) for t in self._parser.clex.tokens_buffer]
         return final_ast[1], final_ast[0], tokens
 
     # def __getattr__(self, item):
