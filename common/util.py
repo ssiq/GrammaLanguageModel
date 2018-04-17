@@ -13,6 +13,8 @@ import sklearn
 import pandas as pd
 import sys
 
+import time
+
 
 def make_dir(*path: str) -> None:
     """
@@ -333,6 +335,20 @@ def maintain_function_co_firstlineno(ori_fn):
         return fn
 
     return wrapper
+
+
+def show_process_map(fn, l, print_steps=1000, error_default_value=None):
+    res = []
+    begin_time = time.time()
+    for i, t in enumerate(l):
+        if i % print_steps == 0:
+            print("{}/{} finished".format(i,len(l)))
+        try:
+            res.append(fn(t))
+        except Exception:
+            res.append(error_default_value)
+    print("This map use {} seconds".format(time.time()-begin_time))
+    return res
 
 
 if __name__ == '__main__':

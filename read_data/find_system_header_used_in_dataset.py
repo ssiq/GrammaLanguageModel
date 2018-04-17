@@ -1,5 +1,5 @@
 from read_data.read_experiment_data import read_distinct_problem_user_ac_c99_code_dataset, read_filtered_distinct_problem_user_ac_c99_code_dataset
-from common.analyse_include_util import extract_include_from_code
+from c_code_processer.code_util import extract_include_from_code
 
 import more_itertools
 

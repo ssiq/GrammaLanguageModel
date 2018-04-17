@@ -368,7 +368,6 @@ class MonitoredParser(object):
                 for i, (right_id, right)  in enumerate(zip(production.right_id, production.right), start=1):
                     if production_vocabulary.is_ternimal(right_id):
                         value = p[i]
-                        print("terminal token:{}".format(value))
                         left_node[right_id] = LeafParseNode(right,
                                                             value,
                                                             right_id)
@@ -414,7 +413,6 @@ class MonitoredParser(object):
         :return: the parse tree , the ast, the tokens
         """
         final_ast = self._parse(code)
-        print(final_ast)
         tokens = [t[0] for t in self._parser.clex.tokens_buffer]
         return final_ast[1], final_ast[0], tokens
 

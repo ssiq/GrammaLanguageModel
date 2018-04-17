@@ -1,7 +1,7 @@
 from read_data.read_filter_data_records import read_distinct_problem_user_compile_success_c_records
 from common.util import disk_cache
 from common.constants import CACHE_DATA_PATH
-from common.analyse_include_util import extract_include_from_code, remove_include
+from c_code_processer.code_util import extract_include_from_code, remove_include
 
 
 def filter_frac(data_df, frac):

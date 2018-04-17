@@ -1,10 +1,11 @@
 from collections import Counter
 
 import more_itertools
+from toolz.sandbox import unzip
 
-from c_code_processer.code_util import tokenize
+from c_code_processer.code_util import tokenize, MonitoredParser
 from common.constants import CACHE_DATA_PATH
-from common.util import disk_cache
+from common.util import disk_cache, show_process_map
 from read_data.read_experiment_data import read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset
 
 
@@ -56,7 +57,26 @@ def get_vocabulary_id_map():
     word_list = sorted(get_token_vocabulary())
     return {word: i for i, word in enumerate(word_list)}
 
+
+@disk_cache(basename="read_parsed_tree_code", directory=CACHE_DATA_PATH)
+def read_parsed_tree_code():
+    def parse_df(df):
+        monitor = MonitoredParser()
+        parsed_code = show_process_map(monitor.parse_get_production_list_and_token_list, df['code'],
+                                       error_default_value=(None, None, None))
+        parsed_code = unzip(parsed_code)
+        df['parse_tree'] = list(parsed_code[0])
+        df['ast'] = list(parsed_code[1])
+        df['tokens'] = list(parsed_code[2])
+        return df
+
+    return [parse_df(df) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
+
+
 if __name__ == '__main__':
-    for i in read_filtered_without_include_code_tokens():
-        # print(i[0][:10])
-        pass
+    # for i in read_filtered_without_include_code_tokens():
+    #     # print(i[0][:10])
+    #     pass
+    import sys
+    sys.setrecursionlimit(100000)
+    read_parsed_tree_code()
