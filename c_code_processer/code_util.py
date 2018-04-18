@@ -156,6 +156,27 @@ class ProductionVocabulary(object):
         self._string_production_map = {str(production): production for production in self._production_list}
         self._terminal_set = set(i.strip() for i in pycparser.c_lexer.CLexer.tokens)
         self._terminal_id_set = set(self._token_id_map[t] for t in self._terminal_set)
+        self._match_terminal_node = self._create_matched_ternimal_node()
+
+    def _create_matched_ternimal_node(self,):
+        token_dict = {}
+        def _create_dict(token_id):
+            if token_id in token_dict:
+                return token_dict[token_id]
+            token_dict[token_id] = set()
+            if self.is_ternimal(token_id):
+                token_dict[token_id] = {token_id}
+                return token_dict[token_id]
+            for p in self.get_matched_production(token_id):
+                if len(p.right_id) >= 1:
+                    token_dict[token_id] |= _create_dict(p.right_id[0])
+            return token_dict[token_id]
+        for token in self._token_set:
+            _create_dict(self._token_id_map[token])
+        for k, v in token_dict.items():
+            for i_v in v:
+                assert self.is_ternimal(i_v)
+        return token_dict
 
     def _get_set_id_map(self, s):
         s = sorted(s, key=lambda x: str(x))
@@ -165,8 +186,10 @@ class ProductionVocabulary(object):
         return self._id_production_map[i]
 
     def get_matched_production(self, token_id):
-        token = self._id_token_map[token_id]
-        return self._token_derivate_map[token]
+        return self._token_derivate_map[token_id]
+
+    def get_matched_terminal_node(self, token_id):
+        return self._match_terminal_node[token_id]
 
     def get_production_by_production_string(self, doc):
         """
@@ -347,6 +370,22 @@ def show_production_node(node):
                 stack.append((next_tab, child))
 
 
+def parse_tree_to_top_down_process(node):
+    """
+    :param node: The root node of a parse tree
+    :return: a list of node in this tree which is in preorder traversal
+    """
+    stack = [node]
+    production_list = []
+    while stack:
+        next_node = stack.pop()
+        if not next_node.is_leaf():
+            production_list.append(next_node)
+            for child in reversed(node.children):
+                stack.append(child)
+    return production_list
+
+
 class MonitoredParser(object):
     def __init__(self,
                  lex_optimize=True,
@@ -458,4 +497,7 @@ if __name__ == '__main__':
         }
         """
     show_production_node(monitor.parse_get_production_list_and_token_list(code)[0])
+    production_vocabulary = get_all_c99_production_vocabulary()
+    print(production_vocabulary)
+    print(production_vocabulary._match_terminal_node)
 
