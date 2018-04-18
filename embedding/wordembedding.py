@@ -42,15 +42,15 @@ class Vocabulary(object):
         :return:
         """
         if use_position_label:
-            texts = [[self.begin] + text + [self.end] for text in texts]
+            texts = [self.begin_tokens + text + self.end_tokens for text in texts]
         max_text = max(map(lambda x:len(x), texts))
         texts = [[self.word_to_id(token) for token in text] for text in texts]
         texts = [text+[0]*(max_text-len(text)) for text in texts]
         return texts
 
-    def parse_text_without_pad(self, texts, use_position_label = False):
+    def parse_text_without_pad(self, texts, use_position_label=False):
         if use_position_label:
-            texts = [[self.begin] + text + [self.end] for text in texts]
+            texts = [self.begin_tokens + text + self.end_tokens for text in texts]
         texts = [[self.word_to_id(token) for token in text] for text in texts]
         return texts
 

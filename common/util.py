@@ -12,6 +12,7 @@ import more_itertools
 import sklearn
 import pandas as pd
 import sys
+import cytoolz as toolz
 
 import time
 
@@ -340,16 +341,32 @@ def maintain_function_co_firstlineno(ori_fn):
 def show_process_map(fn, l, print_steps=1000, error_default_value=None):
     res = []
     begin_time = time.time()
+    fail_number = 0
     for i, t in enumerate(l):
         if i % print_steps == 0:
-            print("{}/{} finished".format(i,len(l)))
+            print("{}/{} finished".format(i, len(l)))
+            print("{}/{} data map failed".format(fail_number, len(l)))
         try:
             res.append(fn(t))
         except Exception:
+            fail_number += 1
             res.append(error_default_value)
     print("This map use {} seconds".format(time.time()-begin_time))
+    print("{}/{} data map failed".format(fail_number, len(l)))
     return res
 
+
+@toolz.curry
+def generate_mask(mask_index, size):
+    '''
+    :param mask_index: a list of index
+    :param size: the max size
+    :return: a 0-1 mask list with the size shape
+    '''
+    res = [0] * size
+    for i in mask_index:
+        res[i] = 1
+    return res
 
 if __name__ == '__main__':
     make_dir('data', 'cache_data')

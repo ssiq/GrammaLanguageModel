@@ -148,6 +148,9 @@ class ProductionVocabulary(object):
                  production_list: typing.List,):
         self._token_set = set(i.strip() for i in more_itertools.collapse(production_list))
         self._id_token_map = self._get_set_id_map(self._token_set)
+        self._EMPTY = "<EMPTY>" #This token is used to indicate the stack is empty
+        self._token_set.add(self._EMPTY)
+        self._id_token_map[len(self._id_token_map)] = self._EMPTY
         self._token_id_map = util.reverse_dict(self._id_token_map)
         self._production_list = [Production(left, right, self._token_id_map) for left, right in production_list]
         self._id_production_map = self._get_set_id_map(self._production_list)
@@ -155,6 +158,7 @@ class ProductionVocabulary(object):
         self._token_derivate_map = toolz.groupby(lambda x: x.left_id, self._production_list)
         self._string_production_map = {str(production): production for production in self._production_list}
         self._terminal_set = set(i.strip() for i in pycparser.c_lexer.CLexer.tokens)
+        self._terminal_set.add(self.EMPTY)
         self._terminal_id_set = set(self._token_id_map[t] for t in self._terminal_set)
         self._match_terminal_node = self._create_matched_ternimal_node()
 
@@ -186,7 +190,10 @@ class ProductionVocabulary(object):
         return self._id_production_map[i]
 
     def get_matched_production(self, token_id):
-        return self._token_derivate_map[token_id]
+        if token_id in self._token_derivate_map:
+            return self._token_derivate_map[token_id]
+        else:
+            return []
 
     def get_matched_terminal_node(self, token_id):
         return self._match_terminal_node[token_id]
@@ -207,6 +214,13 @@ class ProductionVocabulary(object):
 
     def get_token_id(self, token):
         return self._token_id_map[token]
+
+    def token_num(self):
+        return len(self._token_set)
+
+    @property
+    def EMPTY(self):
+        return self._EMPTY
 
     def __str__(self):
         return "\n".join([str(production) for production in self._production_list])
@@ -370,19 +384,30 @@ def show_production_node(node):
                 stack.append((next_tab, child))
 
 
+LeafToken = collections.namedtuple("LeafToken", ["type_id", "type_string", "value"])
+
+
 def parse_tree_to_top_down_process(node):
     """
     :param node: The root node of a parse tree
     :return: a list of node in this tree which is in preorder traversal
     """
-    stack = [node]
+    prefix_tab = " "
+    stack = [("", node)]
     production_list = []
-    while stack:
-        next_node = stack.pop()
+    print(stack)
+    while len(stack) != 0:
+        print(stack)
+        tab, next_node = stack.pop()
+        next_tab = tab + prefix_tab
+        print(tab + next_node.type_string)
         if not next_node.is_leaf():
-            production_list.append(next_node)
-            for child in reversed(node.children):
-                stack.append(child)
+            production_list.append(next_node.production)
+            for child in reversed(next_node.children):
+                stack.append((next_tab, child))
+        else:
+            production_list.append(LeafToken(type_id=next_node.type_id, type_string=next_node.type_string,
+                                             value=next_node.value))
     return production_list
 
 
@@ -428,7 +453,7 @@ class MonitoredParser(object):
                 left_node = ProductionNode(production, p[0])
                 for i, (right_id, right) in enumerate(zip(production.right_id, production.right), start=1):
                     if production_vocabulary.is_ternimal(right_id):
-                        value = p[i].value
+                        value = p[i]
                         child_node = LeafParseNode(right,
                                                    value,
                                                    right_id)
@@ -496,8 +521,14 @@ if __name__ == '__main__':
             return a+b*c;
         }
         """
-    show_production_node(monitor.parse_get_production_list_and_token_list(code)[0])
-    production_vocabulary = get_all_c99_production_vocabulary()
-    print(production_vocabulary)
-    print(production_vocabulary._match_terminal_node)
+    # show_production_node(monitor.parse_get_production_list_and_token_list(code)[0])
+    # print("The second show")
+    # show_production_node(monitor.parse_get_production_list_and_token_list(code)[0])
+    # production_vocabulary = get_all_c99_production_vocabulary()
+    # print(production_vocabulary)
+    # print(production_vocabulary._match_terminal_node)
+    print("top_down_show")
+    for t in parse_tree_to_top_down_process(monitor.parse_get_production_list_and_token_list(code)[0]):
+        print(t)
+
 
