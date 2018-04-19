@@ -207,13 +207,13 @@ def padded_code_new(batch_code, fill_value):
             return batch_code
         elif not isinstance(batch_root[0], list):
             return batch_code
-        fill_value = fill_value
+        cur_fill_value = fill_value
         if isinstance(batch_root[0][0], list):
-            fill_value = []
+            cur_fill_value = []
         max_len = max(map(len, batch_root))
         for b in batch_root:
             while len(b) < max_len:
-                b.append(fill_value)
+                b.append(cur_fill_value)
         # list(map(lambda x: list(more_itertools.padded(x, fillvalue=fill_value, n=max_len)), batch_root))
 
         tmp = []

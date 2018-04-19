@@ -13,3 +13,22 @@ def mask_softmax(logit, mask):
     logit_exp = torch.exp(logit) * mask
     softmax = logit_exp/torch.sum(logit_exp, dim=-1, keepdim=True)
     return softmax
+
+
+def to_sparse(x, cuda=True, gpu_index=0):
+    """ converts dense tensor x to sparse format """
+    x_typename = torch.typename(x).split('.')[-1]
+    if cuda:
+        sparse_tensortype = getattr(torch.cuda.sparse, x_typename)
+    else:
+        sparse_tensortype = getattr(torch.sparse, x_typename)
+
+    indices = torch.nonzero(x)
+    if len(indices.shape) == 0:  # if all elements are zeros
+        return sparse_tensortype(*x.shape)
+    indices = indices.t()
+    values = x[tuple(indices[i] for i in range(indices.shape[0]))]
+    if cuda:
+        return sparse_tensortype(indices, values, x.size(), device=torch.device('cuda:{}'.format(gpu_index)))
+    else:
+        return sparse_tensortype(indices, values, x.size())

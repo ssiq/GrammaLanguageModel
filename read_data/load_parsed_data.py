@@ -72,9 +72,10 @@ def read_parsed_tree_code(debug=False):
     if not debug:
         return [parse_df(df) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
     else:
-        return [parse_df(df.head(10)) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
+        return [parse_df(df.head(100)) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
 
 
+@disk_cache(basename="read_parsed_top_down_code_test", directory=CACHE_DATA_PATH)
 def read_parsed_top_down_code(debug=False):
     data = read_parsed_tree_code(debug)
 
