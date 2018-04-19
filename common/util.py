@@ -16,6 +16,8 @@ import cytoolz as toolz
 
 import time
 
+from sklearn.utils import shuffle
+
 
 def make_dir(*path: str) -> None:
     """
@@ -348,7 +350,7 @@ def show_process_map(fn, l, print_steps=1000, error_default_value=None):
             print("{}/{} data map failed".format(fail_number, len(l)))
         try:
             res.append(fn(t))
-        except Exception:
+        except Exception as e:
             fail_number += 1
             res.append(error_default_value)
     print("This map use {} seconds".format(time.time()-begin_time))
@@ -368,5 +370,24 @@ def generate_mask(mask_index, size):
         res[i] = 1
     return res
 
+
+
+def data_loader(dataset, batch_size, is_shuffle=True, drop_last=False):
+    idxs = list(range(len(dataset)))
+    if is_shuffle:
+        idxs = shuffle(idxs)
+    for idx in batch_holder(idxs, batch_size=batch_size)():
+        idx = idx[0]
+        if drop_last and len(idx) != batch_size:
+            # print("drop_last:{}".format(drop_last))
+            # print("len(idx) != batch_size: {}".format(len(idx) != batch_size))
+            # print("to break")
+            break
+        batch = [dataset[i] for i in idx]
+        # print("before yield")
+        yield toolz.merge_with(lambda x:x, batch)
+
+
 if __name__ == '__main__':
     make_dir('data', 'cache_data')
+

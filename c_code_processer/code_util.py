@@ -395,12 +395,12 @@ def parse_tree_to_top_down_process(node):
     prefix_tab = " "
     stack = [("", node)]
     production_list = []
-    print(stack)
+    # print(stack)
     while len(stack) != 0:
-        print(stack)
+        # print(stack)
         tab, next_node = stack.pop()
         next_tab = tab + prefix_tab
-        print(tab + next_node.type_string)
+        # print(tab + next_node.type_string)
         if not next_node.is_leaf():
             production_list.append(next_node.production)
             for child in reversed(next_node.children):
