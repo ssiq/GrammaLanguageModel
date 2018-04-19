@@ -253,7 +253,7 @@ def train(model,
           optimizer):
     total_loss = torch.Tensor([0])
     steps = torch.Tensor([0])
-    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True,  drop_last=True):
+    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True,  drop_last=True, epoch_ratio=0.25):
         # print(batch_data['terminal_mask'])
         # print('batch_data size: ', len(batch_data['terminal_mask'][0]), len(batch_data['terminal_mask'][0][0]))
         # res = list(more_itertools.collapse(batch_data['terminal_mask']))

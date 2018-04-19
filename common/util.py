@@ -372,10 +372,12 @@ def generate_mask(mask_index, size):
 
 
 
-def data_loader(dataset, batch_size, is_shuffle=True, drop_last=False):
+def data_loader(dataset, batch_size, is_shuffle=True, drop_last=False, epoch_ratio=1.0):
     idxs = list(range(len(dataset)))
     if is_shuffle:
         idxs = shuffle(idxs)
+    idxs = idxs[0: int(len(idxs)*epoch_ratio)]
+    # print("the idxs length:{}".format(len(idxs)))
     for idx in batch_holder(idxs, batch_size=batch_size)():
         idx = idx[0]
         if drop_last and len(idx) != batch_size:
