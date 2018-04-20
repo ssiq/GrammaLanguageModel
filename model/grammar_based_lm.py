@@ -223,23 +223,28 @@ class GrammarLanguageModel(nn.Module):
         # print("rnn_feature size:{}".format(rnn_feature.size()))
 
         to_parse_token = self.type_embedding(to_parse_token).cuda(GPU_INDEX)
+        to_parse_token.register_hook(create_hook_fn("to_parse_token"))
         to_parse_token = torch.nn.utils.rnn.pack_padded_sequence(to_parse_token, length, batch_first=True).data
         # print("to_parse_token embedding size:{}".format(to_parse_token.size()))
 
         ternimal_token_probability = self._output_forward(rnn_feature, to_parse_token)
+        ternimal_token_probability.register_hook(create_hook_fn("ternimal_token_probability before mask softmax"))
         # print("terminal_token_probability size:{}".format(ternimal_token_probability.size()))
         terminal_mask = torch.nn.utils.rnn.pack_padded_sequence(terminal_mask, length, batch_first=True).data
         # print("terminal mask size:{}".format(terminal_mask.size()))
         ternimal_token_probability = torch_util.mask_softmax(ternimal_token_probability,
                                                              terminal_mask.type(torch.FloatTensor).cuda(GPU_INDEX))
+        ternimal_token_probability.register_hook(create_hook_fn("ternimal_token_probability"))
         # print("masked terminal_token_probability size:{}".format(ternimal_token_probability.size()))
 
         type_feature_predict = self.type_feature_mlp(self.type_embedding(self._all_type_index).cuda(GPU_INDEX))
+        type_feature_predict.register_hook(create_hook_fn("type_feature_predict"))
         # print("type_feature_predict size:{}".format(type_feature_predict.size()))
         rnn_feature_predict = self.rnn_feature_mlp(rnn_feature)
+        rnn_feature_predict.register_hook(create_hook_fn("rnn_feature_predict"))
         # print("rnn_feature_predict size:{}".format(rnn_feature_predict.size()))
-        ternimal_token_probability = autograd.Variable(torch_util.to_sparse(ternimal_token_probability,
-                                                                            gpu_index=GPU_INDEX))
+        # ternimal_token_probability = autograd.Variable(torch_util.to_sparse(ternimal_token_probability,
+        #                                                                     gpu_index=GPU_INDEX))
         predict = F.log_softmax(rnn_feature_predict+torch.mm(ternimal_token_probability, type_feature_predict), dim=-1)
         # print("predict size:{}".format(predict.size()))
         predict.register_hook(create_hook_fn("predict"))
@@ -312,6 +317,8 @@ def train(model,
 
         loss.register_hook(create_hook_fn("loss"))
         loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
 
         print()
         print("The loss is nan:{}".format(is_nan(loss.detach())))
@@ -419,10 +426,10 @@ def train_and_evaluate(data,
 
 
 if __name__ == '__main__':
-    data = read_parsed_top_down_code(True)
-    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 20, "grammar_lm_test.pkl")
-    # train_and_evaluate(data, 16, 200, 200, 3, 0.001, 20, "grammar_lm_2.pkl")
-    # train_and_evaluate(data, 16, 300, 300, 3, 0.001, 20, "grammar_lm_3.pkl")
+    data = read_parsed_top_down_code()
+    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 40, "grammar_lm_1.pkl")
+    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 40, "grammar_lm_2.pkl")
+    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "grammar_lm_3.pkl")
     # monitor = MonitoredParser(lex_optimize=False,
     #                           yacc_debug=True,
     #                           yacc_optimize=False,
