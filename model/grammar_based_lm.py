@@ -13,11 +13,13 @@ import pandas as pd
 
 import typing
 import os
+import pickle
 
 import config
 from c_code_processer.code_util import parse_tree_to_top_down_process, ProductionVocabulary, \
     get_all_c99_production_vocabulary, LeafToken, MonitoredParser, show_production_node
 from common import util, torch_util
+from common.constants import CACHE_DATA_PATH
 from common.util import generate_mask, show_process_map, data_loader
 from embedding.wordembedding import load_vocabulary, Vocabulary
 from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map, read_parsed_tree_code, \
@@ -238,12 +240,43 @@ class GrammarLanguageModel(nn.Module):
         # print("rnn_feature_predict size:{}".format(rnn_feature_predict.size()))
         ternimal_token_probability = autograd.Variable(torch_util.to_sparse(ternimal_token_probability,
                                                                             gpu_index=GPU_INDEX))
-        predict = F.softmax(rnn_feature_predict+torch.mm(ternimal_token_probability, type_feature_predict), dim=-1)
+        predict = F.log_softmax(rnn_feature_predict+torch.mm(ternimal_token_probability, type_feature_predict), dim=-1)
         # print("predict size:{}".format(predict.size()))
-        predict_log = torch.nn.utils.rnn.PackedSequence(torch.log(predict), batch_sizes)
+        predict.register_hook(create_hook_fn("predict"))
+        predict_log = torch.nn.utils.rnn.PackedSequence(predict, batch_sizes)
+        # predict_log.register_hook(create_hook_fn("predict_log1"))
         predict_log, _ = torch.nn.utils.rnn.pad_packed_sequence(predict_log, batch_first=True, padding_value=PAD_TOKEN)
+        predict_log.register_hook(create_hook_fn("predict_log"))
         unpacked_out = torch.index_select(predict_log, 0, autograd.Variable(idx_unsort).cuda(GPU_INDEX))
+        unpacked_out.register_hook(create_hook_fn("unpacked_out"))
         return unpacked_out
+
+def to_numpy(var):
+    namelist = torch.typename(var).split('.')
+    if "sparse" in namelist:
+        var = var.to_dense()
+    return var.cpu().numpy()
+
+HAS_NAN = False
+def is_nan(var):
+    if var is None:
+        return "None"
+    res = np.isnan(np.sum(to_numpy(var)))
+    if res:
+        global HAS_NAN
+        HAS_NAN = True
+    return res
+
+def show_tensor(var):
+    if var is None:
+        return "None"
+    var = to_numpy(var)
+    return "all zeros:{}, has nan:{}, value:{}".format(np.all(var==0), np.isnan(np.sum(var)), var)
+
+def create_hook_fn(name):
+    def p(v):
+        print("{} gradient: is nan {}".format(name, is_nan(v.detach())))
+    return p
 
 
 def train(model,
@@ -268,13 +301,32 @@ def train(model,
         model.zero_grad()
         batch_data = {k: autograd.Variable(torch.LongTensor(v)) for k, v in batch_data.items()}
         log_probs = model.forward(**batch_data)
+        log_probs.register_hook(create_hook_fn("log_probs"))
 
         batch_log_probs = log_probs.view(-1, list(log_probs.size())[-1])
-        target = list(more_itertools.flatten(target))
 
-        loss = loss_function(batch_log_probs, autograd.Variable(torch.LongTensor(target)).cuda(GPU_INDEX))
+        target = autograd.Variable(torch.LongTensor(list(more_itertools.flatten(target)))).cuda(GPU_INDEX)
 
+        loss = loss_function(batch_log_probs,
+                             target)
+
+        loss.register_hook(create_hook_fn("loss"))
         loss.backward()
+
+        print()
+        print("The loss is nan:{}".format(is_nan(loss.detach())))
+        print("The loss grad is nan:{}".format(is_nan(loss.grad)))
+        print("The log_probs is nan:{}".format(is_nan(log_probs.detach())))
+        print("The log_probs grad is nan:{}".format(is_nan(log_probs.grad)))
+        for name, param in model.named_parameters():
+            print("name of {}: has nan:{}".format(name, is_nan(param.detach())))
+            print("the gradient of {}: has nan:{}".format(name, is_nan(param.grad)))
+        if HAS_NAN:
+            for k, v in batch_data.items():
+                print("{}:{}".format(k, show_tensor(v)))
+            print("{}:{}".format("target", show_tensor(target)))
+        print()
+
         optimizer.step()
 
         total_loss += loss.data.cpu()
@@ -367,8 +419,10 @@ def train_and_evaluate(data,
 
 
 if __name__ == '__main__':
-    data = read_parsed_top_down_code(debug=True)
-    train_and_evaluate(data, 2, 100, 100, 3, 0.001, 10, "grammar_lm_test.pkl")
+    data = read_parsed_top_down_code(True)
+    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 20, "grammar_lm_test.pkl")
+    # train_and_evaluate(data, 16, 200, 200, 3, 0.001, 20, "grammar_lm_2.pkl")
+    # train_and_evaluate(data, 16, 300, 300, 3, 0.001, 20, "grammar_lm_3.pkl")
     # monitor = MonitoredParser(lex_optimize=False,
     #                           yacc_debug=True,
     #                           yacc_optimize=False,

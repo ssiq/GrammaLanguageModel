@@ -17,6 +17,7 @@ def mask_softmax(logit, mask):
 
 def to_sparse(x, cuda=True, gpu_index=0):
     """ converts dense tensor x to sparse format """
+    print(torch.typename(x))
     x_typename = torch.typename(x).split('.')[-1]
     if cuda:
         sparse_tensortype = getattr(torch.cuda.sparse, x_typename)
