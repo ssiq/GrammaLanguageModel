@@ -124,7 +124,7 @@ class GrammarLanguageModel(nn.Module):
         self._rnn_num_layers = rnn_num_layers
         self._hidden_state_size = hidden_state_size
 
-        self.token_embeddings = nn.Embedding(vocab_size, embedding_dim, sparse=True).cuda(GPU_INDEX)
+        self.token_embeddings = nn.Embedding(vocab_size, embedding_dim, sparse=True)
         self.type_embedding = nn.Embedding(type_num, embedding_dim, sparse=True).cuda(GPU_INDEX)
         self.rnn = nn.LSTM(input_size=embedding_dim,
                            hidden_size=hidden_state_size,
@@ -202,16 +202,16 @@ class GrammarLanguageModel(nn.Module):
             [torch.index_select(t, 0, idx_sort) for t in [tokens, to_parse_token,terminal_mask,length]]
         length = list(length)
 
-        rnn_feature = self._forward_rnn(tokens.cuda(GPU_INDEX), length)
+        rnn_feature = self._forward_rnn(tokens, length)
         batch_sizes = rnn_feature.batch_sizes
         rnn_feature = rnn_feature.data
         # print("rrn_feature:{}".format(torch.typename(rnn_feature)))
         # print("rnn_feature size:{}".format(rnn_feature.size()))
 
         # to_parse_token.register_hook(create_hook_fn("to_parse_token"))
-        to_parse_token = torch.nn.utils.rnn.pack_padded_sequence(to_parse_token.cuda(GPU_INDEX), length, batch_first=True).data
+        to_parse_token = torch.nn.utils.rnn.pack_padded_sequence(to_parse_token, length, batch_first=True).data
         # print("to_parse_token1:{}".format(torch.typename(to_parse_token)))
-        to_parse_token = self.type_embedding(to_parse_token).cuda(GPU_INDEX)
+        to_parse_token = self.type_embedding(to_parse_token.cuda(GPU_INDEX))
         # print("to_parse_token2:{}".format(torch.typename(to_parse_token)))
         # print("to_parse_token embedding size:{}".format(to_parse_token.size()))
 
@@ -229,7 +229,7 @@ class GrammarLanguageModel(nn.Module):
         # ternimal_token_probability.register_hook(create_hook_fn("ternimal_token_probability"))
         # print("masked terminal_token_probability size:{}".format(ternimal_token_probability.size()))
 
-        type_feature_predict = self.type_feature_mlp(self.type_embedding(self._all_type_index).cuda(GPU_INDEX))
+        type_feature_predict = self.type_feature_mlp(self.type_embedding(self._all_type_index))
         # print("type_feature_predict:{}".format(torch.typename(type_feature_predict)))
         # type_feature_predict.register_hook(create_hook_fn("type_feature_predict"))
         # print("type_feature_predict size:{}".format(type_feature_predict.size()))
@@ -287,7 +287,7 @@ def train(model,
           optimizer):
     total_loss = torch.Tensor([0])
     steps = torch.Tensor([0])
-    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True,  drop_last=True, epoch_ratio=1.0):
+    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True,  drop_last=True, epoch_ratio=0.25):
         # print(batch_data['terminal_mask'])
         # print('batch_data size: ', len(batch_data['terminal_mask'][0]), len(batch_data['terminal_mask'][0][0]))
         # res = list(more_itertools.collapse(batch_data['terminal_mask']))
@@ -441,7 +441,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
     data = read_parsed_top_down_code()
-    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 10, "grammar_lm_1.pkl", load_previous_model=True)
+    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 30, "grammar_lm_1.pkl", load_previous_model=True)
     train_and_evaluate(data, 16, 200, 200, 3, 0.001, 40, "grammar_lm_2.pkl")
     train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "grammar_lm_3.pkl")
     # monitor = MonitoredParser(lex_optimize=False,
