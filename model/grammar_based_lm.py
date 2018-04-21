@@ -139,8 +139,8 @@ class GrammarLanguageModel(nn.Module):
         self._rnn_num_layers = rnn_num_layers
         self._hidden_state_size = hidden_state_size
 
-        self.token_embeddings = nn.Embedding(vocab_size, embedding_dim, sparse=True).cpu()
-        self.type_embedding = nn.Embedding(type_num, embedding_dim, sparse=True).cpu()
+        self.token_embeddings = nn.Embedding(vocab_size, embedding_dim, sparse=True).cuda(GPU_INDEX)
+        self.type_embedding = nn.Embedding(type_num, embedding_dim, sparse=True).cuda(GPU_INDEX)
         self.rnn = nn.LSTM(input_size=embedding_dim,
                            hidden_size=hidden_state_size,
                            num_layers=rnn_num_layers,).cuda(GPU_INDEX)
@@ -163,7 +163,7 @@ class GrammarLanguageModel(nn.Module):
         ).cuda(GPU_INDEX)
 
         self._initial_state = self.initial_state()
-        self._all_type_index = torch.range(0, type_num-1).type(torch.LongTensor)
+        self._all_type_index = torch.range(0, type_num-1).type(torch.LongTensor).cuda(GPU_INDEX)
 
 
     def _embedding(self, token_sequence):
@@ -174,21 +174,22 @@ class GrammarLanguageModel(nn.Module):
         return self.token_embeddings(token_sequence).cuda(GPU_INDEX)
 
     def initial_state(self):
-        return (autograd.Variable(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
-                                  requires_grad=True).cuda(GPU_INDEX),
-                autograd.Variable(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
-                                  requires_grad=True).cuda(GPU_INDEX))
+        return (nn.Parameter(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
+                             requires_grad=True).cuda(GPU_INDEX),
+                nn.Parameter(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
+                             requires_grad=True).cuda(GPU_INDEX))
 
     def _forward_rnn(self,
-                     embedding_sequence,
+                     tokens,
                      lengths):
         """
-        :param embedding_sequence: a float variable with the shape [batch, seq, embedding_dim]
+        :param tokens: a float variable with the shape [batch, seq,]
         :param lengths: a long variable with the shape [batch, ]
         :return: a float variable with the shape [batch, seq, feature]
         """
-        packed_seq = torch.nn.utils.rnn.pack_padded_sequence(embedding_sequence, lengths, batch_first=True)
+        packed_seq = torch.nn.utils.rnn.pack_padded_sequence(tokens, lengths, batch_first=True)
         # print("packed seq size:{}".format(packed_seq.data.data.size()))
+        packed_seq = torch.nn.utils.rnn.PackedSequence(self._embedding(packed_seq.data), packed_seq.batch_sizes)
         output, _ = self.rnn(packed_seq, self._initial_state)
         return output
 
@@ -216,44 +217,44 @@ class GrammarLanguageModel(nn.Module):
             [torch.index_select(t, 0, idx_sort) for t in [tokens, to_parse_token,terminal_mask,length]]
         length = list(length)
 
-        embedding_feature = self._embedding(tokens)
-        rnn_feature = self._forward_rnn(embedding_feature, length)
+        rnn_feature = self._forward_rnn(tokens.cuda(GPU_INDEX), length)
         batch_sizes = rnn_feature.batch_sizes
         rnn_feature = rnn_feature.data
         # print("rnn_feature size:{}".format(rnn_feature.size()))
 
+        # to_parse_token.register_hook(create_hook_fn("to_parse_token"))
+        to_parse_token = torch.nn.utils.rnn.pack_padded_sequence(to_parse_token.cuda(GPU_INDEX), length, batch_first=True).data
         to_parse_token = self.type_embedding(to_parse_token).cuda(GPU_INDEX)
-        to_parse_token.register_hook(create_hook_fn("to_parse_token"))
-        to_parse_token = torch.nn.utils.rnn.pack_padded_sequence(to_parse_token, length, batch_first=True).data
         # print("to_parse_token embedding size:{}".format(to_parse_token.size()))
 
         ternimal_token_probability = self._output_forward(rnn_feature, to_parse_token)
-        ternimal_token_probability.register_hook(create_hook_fn("ternimal_token_probability before mask softmax"))
+        # ternimal_token_probability.register_hook(create_hook_fn("ternimal_token_probability before mask softmax"))
         # print("terminal_token_probability size:{}".format(ternimal_token_probability.size()))
-        terminal_mask = torch.nn.utils.rnn.pack_padded_sequence(terminal_mask, length, batch_first=True).data
+        terminal_mask = torch.nn.utils.rnn.pack_padded_sequence(terminal_mask.type(torch.FloatTensor).cuda(GPU_INDEX),
+                                                                length, batch_first=True).data
         # print("terminal mask size:{}".format(terminal_mask.size()))
         ternimal_token_probability = torch_util.mask_softmax(ternimal_token_probability,
-                                                             terminal_mask.type(torch.FloatTensor).cuda(GPU_INDEX))
-        ternimal_token_probability.register_hook(create_hook_fn("ternimal_token_probability"))
+                                                             terminal_mask.cuda(GPU_INDEX))
+        # ternimal_token_probability.register_hook(create_hook_fn("ternimal_token_probability"))
         # print("masked terminal_token_probability size:{}".format(ternimal_token_probability.size()))
 
         type_feature_predict = self.type_feature_mlp(self.type_embedding(self._all_type_index).cuda(GPU_INDEX))
-        type_feature_predict.register_hook(create_hook_fn("type_feature_predict"))
+        # type_feature_predict.register_hook(create_hook_fn("type_feature_predict"))
         # print("type_feature_predict size:{}".format(type_feature_predict.size()))
         rnn_feature_predict = self.rnn_feature_mlp(rnn_feature)
-        rnn_feature_predict.register_hook(create_hook_fn("rnn_feature_predict"))
+        # rnn_feature_predict.register_hook(create_hook_fn("rnn_feature_predict"))
         # print("rnn_feature_predict size:{}".format(rnn_feature_predict.size()))
         # ternimal_token_probability = autograd.Variable(torch_util.to_sparse(ternimal_token_probability,
         #                                                                     gpu_index=GPU_INDEX))
         predict = F.log_softmax(rnn_feature_predict+torch.mm(ternimal_token_probability, type_feature_predict), dim=-1)
         # print("predict size:{}".format(predict.size()))
-        predict.register_hook(create_hook_fn("predict"))
+        # predict.register_hook(create_hook_fn("predict"))
         predict_log = torch.nn.utils.rnn.PackedSequence(predict, batch_sizes)
         # predict_log.register_hook(create_hook_fn("predict_log1"))
         predict_log, _ = torch.nn.utils.rnn.pad_packed_sequence(predict_log, batch_first=True, padding_value=PAD_TOKEN)
-        predict_log.register_hook(create_hook_fn("predict_log"))
+        # predict_log.register_hook(create_hook_fn("predict_log"))
         unpacked_out = torch.index_select(predict_log, 0, autograd.Variable(idx_unsort).cuda(GPU_INDEX))
-        unpacked_out.register_hook(create_hook_fn("unpacked_out"))
+        # unpacked_out.register_hook(create_hook_fn("unpacked_out"))
         return unpacked_out
 
 def to_numpy(var):
@@ -291,7 +292,7 @@ def train(model,
           optimizer):
     total_loss = torch.Tensor([0])
     steps = torch.Tensor([0])
-    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True,  drop_last=True, epoch_ratio=0.25):
+    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True,  drop_last=True, epoch_ratio=1.0):
         # print(batch_data['terminal_mask'])
         # print('batch_data size: ', len(batch_data['terminal_mask'][0]), len(batch_data['terminal_mask'][0][0]))
         # res = list(more_itertools.collapse(batch_data['terminal_mask']))
@@ -306,7 +307,7 @@ def train(model,
         model.zero_grad()
         batch_data = {k: autograd.Variable(torch.LongTensor(v)) for k, v in batch_data.items()}
         log_probs = model.forward(**batch_data)
-        log_probs.register_hook(create_hook_fn("log_probs"))
+        # log_probs.register_hook(create_hook_fn("log_probs"))
 
         batch_log_probs = log_probs.view(-1, list(log_probs.size())[-1])
 
@@ -315,24 +316,24 @@ def train(model,
         loss = loss_function(batch_log_probs,
                              target)
 
-        loss.register_hook(create_hook_fn("loss"))
+        # loss.register_hook(create_hook_fn("loss"))
         loss.backward()
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
 
-        print()
-        print("The loss is nan:{}".format(is_nan(loss.detach())))
-        print("The loss grad is nan:{}".format(is_nan(loss.grad)))
-        print("The log_probs is nan:{}".format(is_nan(log_probs.detach())))
-        print("The log_probs grad is nan:{}".format(is_nan(log_probs.grad)))
-        for name, param in model.named_parameters():
-            print("name of {}: has nan:{}".format(name, is_nan(param.detach())))
-            print("the gradient of {}: has nan:{}".format(name, is_nan(param.grad)))
-        if HAS_NAN:
-            for k, v in batch_data.items():
-                print("{}:{}".format(k, show_tensor(v)))
-            print("{}:{}".format("target", show_tensor(target)))
-        print()
+        # print()
+        # print("The loss is nan:{}".format(is_nan(loss.detach())))
+        # print("The loss grad is nan:{}".format(is_nan(loss.grad)))
+        # print("The log_probs is nan:{}".format(is_nan(log_probs.detach())))
+        # print("The log_probs grad is nan:{}".format(is_nan(log_probs.grad)))
+        # for name, param in model.named_parameters():
+        #     print("name of {}: has nan:{}".format(name, is_nan(param.detach())))
+        #     print("the gradient of {}: has nan:{}".format(name, is_nan(param.grad)))
+        # if HAS_NAN:
+        #     for k, v in batch_data.items():
+        #         print("{}:{}".format(k, show_tensor(v)))
+        #     print("{}:{}".format("target", show_tensor(target)))
+        # print()
 
         optimizer.step()
 
@@ -352,7 +353,6 @@ def evaluate(model,
                       batch_data.items()}
         target = batch_data["target"]
         del batch_data["target"]
-        model.zero_grad()
         batch_data = {k: autograd.Variable(torch.LongTensor(v)) for k, v in batch_data.items()}
         log_probs = model.forward(**batch_data)
 
@@ -373,7 +373,8 @@ def train_and_evaluate(data,
                        rnn_num_layer,
                        learning_rate,
                        epoches,
-                       saved_name):
+                       saved_name,
+                       load_previous_model=False):
     save_path = os.path.join(config.save_model_root, saved_name)
     for d, n in zip(data, ["train", "val", "test"]):
         print("There are {} raw data in the {} dataset".format(len(d), n))
@@ -401,8 +402,19 @@ def train_and_evaluate(data,
     )
     optimizer = optim.SGD(model.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
-    best_valid_perplexity = None
-    best_test_perplexity = None
+    if load_previous_model:
+        torch_util.load_model(model, save_path)
+        valid_loss = evaluate(model, valid_dataset, batch_size, loss_function)
+        test_loss = evaluate(model, test_dataset, batch_size, loss_function)
+        best_valid_perplexity = torch.exp(valid_loss)[0]
+        best_test_perplexity = torch.exp(test_loss)[0]
+        print(
+            "load the previous mode, validation perplexity is {}, test perplexity is :{}".format(best_valid_perplexity,
+                                                                                                 best_test_perplexity))
+        scheduler.step(best_valid_perplexity)
+    else:
+        best_valid_perplexity = None
+        best_test_perplexity = None
     for epoch in range(epoches):
         train_loss = train(model, train_dataset, batch_size, loss_function, optimizer)
         valid_loss = evaluate(model, valid_dataset, batch_size, loss_function)
@@ -426,10 +438,11 @@ def train_and_evaluate(data,
 
 
 if __name__ == '__main__':
-    data = read_parsed_top_down_code()
-    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 40, "grammar_lm_1.pkl")
-    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 40, "grammar_lm_2.pkl")
-    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "grammar_lm_3.pkl")
+    torch.backends.cudnn.enabled = True
+    data = read_parsed_top_down_code(True)
+    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 10, "grammar_lm_test.pkl", load_previous_model=True)
+    # train_and_evaluate(data, 16, 200, 200, 3, 0.001, 40, "grammar_lm_2.pkl")
+    # train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "grammar_lm_3.pkl")
     # monitor = MonitoredParser(lex_optimize=False,
     #                           yacc_debug=True,
     #                           yacc_optimize=False,
