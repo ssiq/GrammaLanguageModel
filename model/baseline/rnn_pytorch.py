@@ -14,7 +14,7 @@ from sklearn.utils import shuffle
 import sys
 
 
-gpu_index = 1
+gpu_index = 0
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 
 
@@ -67,26 +67,36 @@ class LSTMModel(nn.Module):
         inputs = torch.index_select(inputs, 0, idx_sort)
         token_lengths = list(torch.index_select(token_lengths, 0, idx_sort))
 
-        # print('input_size: ', inputs.size())
+        print('input_size: ', inputs.size())
 
         embeds = self.word_embeddings(autograd.Variable(inputs).cuda(gpu_index)).view(self.batch_size, -1, self.embedding_dim).cuda(gpu_index)
         # print('embeds_size: {}, embeds is cuda: {}'.format(embeds.size(), embeds.is_cuda))
         embeds = embeds.view(self.batch_size, -1, self.embedding_dim)
-        # print('embeds_size: {}, embeds is cuda: {}'.format(embeds.size(), embeds.is_cuda))
+        print('embeds_size: {}, embeds is cuda: {}'.format(embeds.size(), embeds.is_cuda))
+        # print('embeds value: {}'.format(embeds.data))
         # print('after embeds token_length: {}'.format(token_lengths))
         packed_inputs = torch.nn.utils.rnn.pack_padded_sequence(embeds, token_lengths, batch_first=True)
         # print('packed_inputs batch size: ', len(packed_inputs.batch_sizes))
         # print('packed_inputs is cuda: {}'.format(packed_inputs.data.is_cuda))
         lstm_out, self.hidden = self.lstm(packed_inputs, self.hidden)
+
+        unpacked_lstm_out, unpacked_lstm_length = torch.nn.utils.rnn.pad_packed_sequence(lstm_out, batch_first=True,
+                                                                               padding_value=0)
+        dict_output = self.hidden2tag(unpacked_lstm_out).cuda(gpu_index)
+        packed_dict_output = torch.nn.utils.rnn.pack_padded_sequence(dict_output, token_lengths, batch_first=True)
+
+
         # print('lstm_out batch size: ', len(lstm_out.batch_sizes))
         # print('lstm_out is cuda: ', lstm_out.data.is_cuda)
-        packed_output = nn.utils.rnn.PackedSequence(self.hidden2tag(lstm_out.data).cuda(gpu_index), lstm_out.batch_sizes)    # output shape: [batch_size, token_length, dictionary_size]
+        # print('lstm value: {}'.format(lstm_out.data))
+
+        # packed_output = nn.utils.rnn.PackedSequence(self.hidden2tag(lstm_out.data).cuda(gpu_index), lstm_out.batch_sizes)    # output shape: [batch_size, token_length, dictionary_size]
         # print('packed_output batch size: ', len(packed_output.batch_sizes))
         # print('packed_output is cuda: ', packed_output.data.is_cuda)
 
-        unpacked_out, unpacked_length = torch.nn.utils.rnn.pad_packed_sequence(packed_output, batch_first=True, padding_value=-1)
+        unpacked_out, unpacked_length = torch.nn.utils.rnn.pad_packed_sequence(packed_dict_output, batch_first=True, padding_value=0)
         # print('unpacked_out: {}, unpacked_length: {}'.format(unpacked_out.size(), unpacked_length))
-        unpacked_out = torch.index_select(unpacked_out, 0, autograd.Variable(idx_sort).cuda(gpu_index))
+        unpacked_out = torch.index_select(unpacked_out, 0, autograd.Variable(idx_unsort).cuda(gpu_index))
         # print('unsort unpacked_out: {}'.format(unpacked_out.size()))
         # print('unsort unpacked_out is cuda: {}'.format(unpacked_out.is_cuda))
 
@@ -100,6 +110,7 @@ def train(model, X, y, optimizer, loss_function, batch_size):
     print('before shuffle')
     X, y = shuffle(X, y)
     print('finish shuffle: x: {}, y: {}'.format(len(X), len(y)))
+    batch_token_count = 0
 
     for inp, out in batch_holder(X, y, batch_size=batch_size)():
         if len(inp) != batch_size:
@@ -109,9 +120,15 @@ def train(model, X, y, optimizer, loss_function, batch_size):
         # print('X size: ', torch.Tensor(inp).size())
         # print('y size: ', torch.Tensor(y).size())
         inp, inp_len = list(zip(*inp))
+        one_batch_count = 0
+        for le in inp_len:
+            one_batch_count += le
+        batch_token_count += one_batch_count
         # print(type(inp), type(inp[0]))
         inp = util.padded(list(inp), deepcopy=True, fill_value=0)
-        out = util.padded(list(out), deepcopy=True, fill_value=-1)
+        out = util.padded(list(out), deepcopy=True, fill_value=0)
+        # print('input: {}'.format(inp))
+        # print('output: {}'.format(out))
         # print('inp[0]: {}, inp[1]: {}, inp[2]: {}, inp[3]: {}'.format(len(inp[0]), len(inp[1]), len(inp[2]), len(inp[3])))
         # print('in one batch: X: {},{}, y: {},{}'.format(len(inp), len(inp[0]), len(out), len(out[0])))
         # print('X size: ', torch.Tensor(inp).size())
@@ -122,13 +139,21 @@ def train(model, X, y, optimizer, loss_function, batch_size):
         model.hidden = model.init_hidden()
 
         log_probs = model.forward(inp, inp_len)
+        # print('log_probs: {}'.format(log_probs.data))
 
         batch_log_probs = log_probs.view(-1, list(log_probs.size())[-1])
         out = list(more_itertools.flatten(out))
 
+        if steps % 100 == 0:
+            _, max_res = torch.max(batch_log_probs, dim=1)
+            # print('max_res: {}'.format(list(max_res.data)))
+            # print('target: {}'.format(out))
+            max_bi = list(zip(max_res.tolist(), out))
+            print('max_bi: {}'.format(max_bi))
+
         loss = loss_function(batch_log_probs, autograd.Variable(torch.LongTensor(out)).cuda(gpu_index))
         print('step {} loss: {}'.format(steps, loss.data))
-        total_loss += loss.data.cpu()
+        total_loss += (loss.data.cpu() * one_batch_count)
 
         loss.backward()
         optimizer.step()
@@ -138,13 +163,16 @@ def train(model, X, y, optimizer, loss_function, batch_size):
             sys.stderr.flush()
 
         steps += 1
-    return total_loss / steps
+    print('mean loss per steps: ', total_loss/steps)
+    print('mean loss per token: ', total_loss/batch_token_count)
+    return total_loss / batch_token_count
 
 
 def evaluate(model, X, y, loss_function, batch_size):
     # print('in evaluate')
     steps = 0
     total_loss = torch.Tensor([0])
+    batch_token_count = 0
 
     for inp, out in batch_holder(X, y, batch_size=batch_size)():
         if len(inp) != batch_size:
@@ -154,9 +182,13 @@ def evaluate(model, X, y, loss_function, batch_size):
         # print('X size: ', torch.Tensor(inp).size())
         # print('y size: ', torch.Tensor(y).size())
         inp, inp_len = list(zip(*inp))
+        one_batch_count = 0
+        for le in inp_len:
+            one_batch_count += le
+        batch_token_count += one_batch_count
         # print(type(inp), type(inp[0]))
         inp = util.padded(list(inp), deepcopy=True, fill_value=0)
-        out = util.padded(list(out), deepcopy=True, fill_value=-1)
+        out = util.padded(list(out), deepcopy=True, fill_value=0)
         # print('inp[0]: {}, inp[1]: {}, inp[2]: {}, inp[3]: {}'.format(len(inp[0]), len(inp[1]), len(inp[2]), len(inp[3])))
         # print('in one batch: X: {},{}, y: {},{}'.format(len(inp), len(inp[0]), len(out), len(out[0])))
         # print('X size: ', torch.Tensor(inp).size())
@@ -172,14 +204,16 @@ def evaluate(model, X, y, loss_function, batch_size):
 
         loss = loss_function(batch_log_probs, autograd.Variable(torch.LongTensor(out)).cuda(gpu_index))
         print('step {} loss: {}'.format(steps, loss.data))
-        total_loss += loss.data.cpu()
+        total_loss += (loss.data.cpu() * one_batch_count)
 
         if steps % 1000 == 0:
             sys.stdout.flush()
             sys.stderr.flush()
 
         steps += 1
-    return total_loss / steps
+    print('mean loss per steps: ', total_loss / steps)
+    print('mean loss per token: ', total_loss / batch_token_count)
+    return total_loss / batch_token_count
 
 
 def parse_xy(codes, word_to_id_fn):
@@ -187,7 +221,7 @@ def parse_xy(codes, word_to_id_fn):
     end_tokens = [END]
 
     codes = [begin_tokens + code + end_tokens for code in codes]
-    codes = [[word_to_id_fn(token) for token in code] for code in codes]
+    codes = [[word_to_id_fn(token) + 1 for token in code] for code in codes]
     codes = list(filter(lambda x: len(x) < 500, codes))
 
     X = []
@@ -200,7 +234,8 @@ def parse_xy(codes, word_to_id_fn):
     return X, y
 
 
-def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidirectional, dropout, learning_rate, batch_size, epoches, saved_name):
+def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidirectional, dropout, learning_rate, batch_size, epoches, saved_name, load_path=None):
+    print('------------------------------------- start train and evaluate ----------------------------------------')
     print('embedding_dim: {}, hidden_size: {}, num_layers: {}, bidirectional: {}, dropout: {}, '
           'learning_rate: {}, batch_size: {}, epoches: {}, saved_name: {}'.format(
         embedding_dim, hidden_size, num_layers, bidirectional, dropout, learning_rate, batch_size, epoches, saved_name))
@@ -223,9 +258,13 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
     print("train data size:{}".format(len(train_data)))
 
     print('before create loss function')
-    loss_function = nn.CrossEntropyLoss(ignore_index=-1)
+    loss_function = nn.CrossEntropyLoss(ignore_index=0)
     print('before create model')
-    model = LSTMModel(vocabulary_size, embedding_dim, hidden_size, num_layers, batch_size, bidirectional, dropout)
+    model = LSTMModel(vocabulary_size + 1, embedding_dim, hidden_size, num_layers, batch_size, bidirectional, dropout)
+    if load_path is not None:
+        load_path = os.path.join(config.save_model_root, load_path)
+        print('load model from {}'.format(load_path))
+        torch_util.load_model(model, load_path)
     print('after create model')
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
     print('after create optimizer')
@@ -267,9 +306,6 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
             best_test_perplexity = test_perplexity
             torch_util.save_model(model, save_path)
 
-        # print("epoch {}: train perplexity of {},  valid perplexity of {}, test perplexity of {}".
-        #       format(epoch, train_perplexity, valid_perplexity, test_perplexity))
-
         print("epoch {}: train perplexity of {},  valid perplexity of {}, test perplexity of {}".
               format(i, train_perplexity, valid_perplexity, test_perplexity))
         sys.stdout.flush()
@@ -284,10 +320,51 @@ if __name__ == '__main__':
     # torch.backends.cudnn.benchmark = True
     print('start')
 
-    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0, learning_rate=0.01, batch_size=16, epoches=15, saved_name='neural_lstm_1.pkl')
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=100, num_layers=1, bidirectional=False, dropout=0, learning_rate=0.01, batch_size=16, epoches=15, saved_name='neural_lstm_2.pkl')
-    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=200, num_layers=1, bidirectional=False, dropout=0, learning_rate=0.01, batch_size=16, epoches=15, saved_name='neural_lstm_3.pkl')
-    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0, learning_rate=0.01, batch_size=16, epoches=15, saved_name='neural_lstm_4.pkl')
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl')
+    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_2.pkl', load_path='neural_lstm_2.pkl')
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl')
+    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_4.pkl', load_path='neural_lstm_4.pkl')
+
+    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=3, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_5.pkl', load_path='neural_lstm_5.pkl')
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=3, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_6.pkl', load_path='neural_lstm_6.pkl')
+
+
+    # model = LSTMModel(dictionary_size=20, embedding_dim=50, hidden_size=200, num_layers=3, batch_size=1, bidirectional=False, dropout=0)
+    # print('after create model')
+    # optimizer = torch.optim.SGD(model.parameters(), lr=0.0001)
+    # print('after create optimizer')
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+    # loss_function = nn.CrossEntropyLoss(ignore_index=0)
+    #
+    # inputs = [[1, 2, 3, 4, 5, 6, 7, 8]]
+    # # output = [2, 4, 6, 8, 10, 12, 14, 16]
+    # outputs = [1, 2, 3, 4, 5, 6, 7, 8]
+    #
+    # min_loss = 100
+    #
+    # for i in range(10000):
+    #     model.zero_grad()
+    #     model.hidden = model.init_hidden()
+    #
+    #     batch_log_probs = model.forward(inputs, [8])
+    #     print(batch_log_probs.size())
+    #     batch_log_probs = batch_log_probs.view(-1, 20)
+    #
+    #     print(batch_log_probs.data)
+    #
+    #     _, max_res = torch.max(batch_log_probs, dim=1)
+    #     # print('max_res: {}'.format(list(max_res.data)))
+    #     # print('target: {}'.format(out))
+    #     max_bi = list(zip(max_res.tolist(), outputs))
+    #     print('max_bi: {}'.format(max_bi))
+    #
+    #     loss = loss_function(batch_log_probs, autograd.Variable(torch.LongTensor(outputs)).cuda(gpu_index))
+    #     if loss < min_loss:
+    #         min_loss = loss
+    #     loss.backward()
+    #     print('step: {} loss: {}'.format(i, loss))
+    #     scheduler.step(loss)
+    # print('min_loss: {}'.format(min_loss))
 
 
 
