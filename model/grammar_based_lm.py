@@ -20,7 +20,7 @@ from c_code_processer.code_util import parse_tree_to_top_down_process, Productio
     get_all_c99_production_vocabulary, LeafToken, MonitoredParser, show_production_node
 from common import util, torch_util
 from common.constants import CACHE_DATA_PATH
-from common.util import generate_mask, show_process_map, data_loader
+from common.util import generate_mask, show_process_map, data_loader, padded_to_length
 from embedding.wordembedding import load_vocabulary, Vocabulary
 from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map, read_parsed_tree_code, \
     read_parsed_top_down_code
@@ -28,6 +28,7 @@ from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_m
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 PAD_TOKEN = -1
 GPU_INDEX = 1
+MAX_LENGTH = 500
 
 
 class CCodeDataSet(Dataset):
@@ -36,7 +37,7 @@ class CCodeDataSet(Dataset):
                  vocabulary: Vocabulary,
                  transform=None):
         self.data_df = data_df[data_df['tokens'].map(lambda x: x is not None)]
-        self.data_df = self.data_df[self.data_df['tokens'].map(lambda x: len(x) < 500)]
+        self.data_df = self.data_df[self.data_df['tokens'].map(lambda x: len(x) < MAX_LENGTH)]
         self.transform = transform
         self.vocabulary = vocabulary
 
@@ -116,6 +117,21 @@ class FlatMap(object):
                     add_(v)
         add_(sample)
         return res
+
+
+class PadMap(object):
+    def __init__(self, type_num):
+        self._type_num = type_num
+        self._mask_pad = [0] * type_num
+
+    def __call__(self, sample: dict):
+        def pad_one_sample(x):
+            x['tokens'] = padded_to_length(x['tokens'], MAX_LENGTH, 0)
+            x['to_parse_token'] = padded_to_length(x['to_parse_token'], MAX_LENGTH, 0)
+            x['terminal_mask'] = padded_to_length(x['terminal_mask'], MAX_LENGTH, self._mask_pad)
+            x['target'] = padded_to_length(x['target'], MAX_LENGTH, PAD_TOKEN)
+            return x
+        return pad_one_sample(sample)
 
 
 def key_transform(transform, key, ):
@@ -220,33 +236,42 @@ class GrammarLanguageModel(nn.Module):
         rnn_feature = self._forward_rnn(tokens.cuda(GPU_INDEX), length)
         batch_sizes = rnn_feature.batch_sizes
         rnn_feature = rnn_feature.data
+        # print("rrn_feature:{}".format(torch.typename(rnn_feature)))
         # print("rnn_feature size:{}".format(rnn_feature.size()))
 
         # to_parse_token.register_hook(create_hook_fn("to_parse_token"))
         to_parse_token = torch.nn.utils.rnn.pack_padded_sequence(to_parse_token.cuda(GPU_INDEX), length, batch_first=True).data
+        # print("to_parse_token1:{}".format(torch.typename(to_parse_token)))
         to_parse_token = self.type_embedding(to_parse_token).cuda(GPU_INDEX)
+        # print("to_parse_token2:{}".format(torch.typename(to_parse_token)))
         # print("to_parse_token embedding size:{}".format(to_parse_token.size()))
 
         ternimal_token_probability = self._output_forward(rnn_feature, to_parse_token)
+        # print("ternimal_token_probability:{}".format(torch.typename(ternimal_token_probability)))
         # ternimal_token_probability.register_hook(create_hook_fn("ternimal_token_probability before mask softmax"))
         # print("terminal_token_probability size:{}".format(ternimal_token_probability.size()))
         terminal_mask = torch.nn.utils.rnn.pack_padded_sequence(terminal_mask.type(torch.FloatTensor).cuda(GPU_INDEX),
                                                                 length, batch_first=True).data
+        # print("terminal_mask:{}".format(torch.typename(terminal_mask)))
         # print("terminal mask size:{}".format(terminal_mask.size()))
         ternimal_token_probability = torch_util.mask_softmax(ternimal_token_probability,
                                                              terminal_mask.cuda(GPU_INDEX))
+        # print("ternimal_token_probability:{}".format(torch.typename(ternimal_token_probability)))
         # ternimal_token_probability.register_hook(create_hook_fn("ternimal_token_probability"))
         # print("masked terminal_token_probability size:{}".format(ternimal_token_probability.size()))
 
         type_feature_predict = self.type_feature_mlp(self.type_embedding(self._all_type_index).cuda(GPU_INDEX))
+        # print("type_feature_predict:{}".format(torch.typename(type_feature_predict)))
         # type_feature_predict.register_hook(create_hook_fn("type_feature_predict"))
         # print("type_feature_predict size:{}".format(type_feature_predict.size()))
         rnn_feature_predict = self.rnn_feature_mlp(rnn_feature)
+        # print("rnn_feature_predict:{}".format(torch.typename(rnn_feature_predict)))
         # rnn_feature_predict.register_hook(create_hook_fn("rnn_feature_predict"))
         # print("rnn_feature_predict size:{}".format(rnn_feature_predict.size()))
         # ternimal_token_probability = autograd.Variable(torch_util.to_sparse(ternimal_token_probability,
         #                                                                     gpu_index=GPU_INDEX))
         predict = F.log_softmax(rnn_feature_predict+torch.mm(ternimal_token_probability, type_feature_predict), dim=-1)
+        # print("predict:{}".format(torch.typename(predict)))
         # print("predict size:{}".format(predict.size()))
         # predict.register_hook(create_hook_fn("predict"))
         predict_log = torch.nn.utils.rnn.PackedSequence(predict, batch_sizes)
@@ -254,6 +279,7 @@ class GrammarLanguageModel(nn.Module):
         predict_log, _ = torch.nn.utils.rnn.pad_packed_sequence(predict_log, batch_first=True, padding_value=PAD_TOKEN)
         # predict_log.register_hook(create_hook_fn("predict_log"))
         unpacked_out = torch.index_select(predict_log, 0, autograd.Variable(idx_unsort).cuda(GPU_INDEX))
+        # print("unpacked_out:{}".format(torch.typename(unpacked_out)))
         # unpacked_out.register_hook(create_hook_fn("unpacked_out"))
         return unpacked_out
 
@@ -301,7 +327,6 @@ def train(model,
         # print('batch_data size: ', len(res[0]), len(res[0][0]))
         # res = list(more_itertools.collapse(res))
         # print('res len: ', len(res))
-        batch_data = {k: util.padded(v, deepcopy=True, fill_value=0 if k!="target" else PAD_TOKEN) for k, v in batch_data.items()}
         target = batch_data["target"]
         del batch_data["target"]
         model.zero_grad()
@@ -311,10 +336,13 @@ def train(model,
 
         batch_log_probs = log_probs.view(-1, list(log_probs.size())[-1])
 
-        target = autograd.Variable(torch.LongTensor(list(more_itertools.flatten(target)))).cuda(GPU_INDEX)
+        target, idx_unsort = torch_util.pack_padded_sequence(
+            autograd.Variable(torch.LongTensor(target)).cuda(GPU_INDEX),
+            batch_data['length'], batch_firse=True, GPU_INDEX=GPU_INDEX)
+        target = torch_util.pad_packed_sequence(target, idx_unsort, pad_value=PAD_TOKEN, batch_firse=True,
+                                                GPU_INDEX=GPU_INDEX)
 
-        loss = loss_function(batch_log_probs,
-                             target)
+        loss = loss_function(batch_log_probs, target.view(-1))
 
         # loss.register_hook(create_hook_fn("loss"))
         loss.backward()
@@ -349,17 +377,18 @@ def evaluate(model,
     total_loss = torch.Tensor([0])
     steps = torch.Tensor([0])
     for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True, drop_last=True):
-        batch_data = {k: util.padded(v, deepcopy=True, fill_value=0 if k != "target" else -1) for k, v in
-                      batch_data.items()}
         target = batch_data["target"]
         del batch_data["target"]
         batch_data = {k: autograd.Variable(torch.LongTensor(v)) for k, v in batch_data.items()}
         log_probs = model.forward(**batch_data)
 
         batch_log_probs = log_probs.view(-1, list(log_probs.size())[-1])
-        target = list(more_itertools.flatten(target))
+        target, idx_unsort = torch_util.pack_padded_sequence(autograd.Variable(torch.LongTensor(target)).cuda(GPU_INDEX),
+                                                             batch_data['length'], batch_firse=True, GPU_INDEX=GPU_INDEX)
+        target = torch_util.pad_packed_sequence(target, idx_unsort, pad_value=PAD_TOKEN, batch_firse=True,
+                                                GPU_INDEX=GPU_INDEX)
 
-        loss = loss_function(batch_log_probs, autograd.Variable(torch.LongTensor(target)).cuda(GPU_INDEX))
+        loss = loss_function(batch_log_probs, target.view(-1))
         total_loss += loss.data.cpu()
         steps += torch.sum(batch_data['length'].data.cpu())
     return total_loss / steps
@@ -384,6 +413,7 @@ def train_and_evaluate(data,
     transforms_fn = transforms.Compose([
         key_transform(GrammarLanguageModelTypeInputMap(production_vocabulary), "tree"),
         FlatMap(),
+        PadMap(production_vocabulary.token_num()),
     ])
     generate_dataset = lambda df: CCodeDataSet(df, vocabulary, transforms_fn)
     data = [generate_dataset(d) for d in data]
@@ -439,6 +469,8 @@ def train_and_evaluate(data,
 
 if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.fastest = True
     data = read_parsed_top_down_code(True)
     train_and_evaluate(data, 16, 100, 100, 3, 0.001, 10, "grammar_lm_test.pkl", load_previous_model=True)
     # train_and_evaluate(data, 16, 200, 200, 3, 0.001, 40, "grammar_lm_2.pkl")

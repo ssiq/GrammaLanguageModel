@@ -233,6 +233,11 @@ def padded(x, deepcopy=False, fill_value=0):
     else:
         return x
 
+def padded_to_length(x, length, fill_value):
+    res = list(more_itertools.padded(x, fill_value, length))
+    return res
+
+
 def batch_holder(*data: typing.List, batch_size=32,):
     """
     :param data:

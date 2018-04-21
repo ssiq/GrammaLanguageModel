@@ -33,3 +33,23 @@ def to_sparse(x, cuda=True, gpu_index=0):
         return sparse_tensortype(indices, values, x.size(), device=torch.device('cuda:{}'.format(gpu_index)))
     else:
         return sparse_tensortype(indices, values, x.size())
+
+
+def pack_padded_sequence(padded_sequence, length, batch_firse=False,GPU_INDEX=0):
+    _, idx_sort = torch.sort(length, dim=0, descending=True)
+    _, idx_unsort = torch.sort(idx_sort, dim=0)
+    length = torch.index_select(length, 0, idx_sort)
+    if padded_sequence.is_cuda:
+        padded_sequence = torch.index_select(padded_sequence, 0, idx_sort.cuda(GPU_INDEX))
+    else:
+        padded_sequence = torch.index_select(padded_sequence, 0, idx_sort)
+    return torch.nn.utils.rnn.pack_padded_sequence(padded_sequence, list(length), batch_first=batch_firse), idx_unsort
+
+
+def pad_packed_sequence(packed_sequence, idx_unsort, pad_value, batch_firse=False, GPU_INDEX=0):
+    padded_sequence, _ = torch.nn.utils.rnn.pad_packed_sequence(packed_sequence, batch_first=batch_firse,
+                                                                padding_value=pad_value)
+    if padded_sequence.is_cuda:
+        return torch.index_select(padded_sequence, 0, torch.autograd.Variable(idx_unsort).cuda(GPU_INDEX))
+    else:
+        return torch.index_select(padded_sequence, 0, torch.autograd.Variable(idx_unsort))
