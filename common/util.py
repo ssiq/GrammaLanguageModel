@@ -207,13 +207,13 @@ def padded_code_new(batch_code, fill_value):
             return batch_code
         elif not isinstance(batch_root[0], list):
             return batch_code
-        fill_value = fill_value
+        cur_fill_value = fill_value
         if isinstance(batch_root[0][0], list):
-            fill_value = []
+            cur_fill_value = []
         max_len = max(map(len, batch_root))
         for b in batch_root:
             while len(b) < max_len:
-                b.append(fill_value)
+                b.append(cur_fill_value)
         # list(map(lambda x: list(more_itertools.padded(x, fillvalue=fill_value, n=max_len)), batch_root))
 
         tmp = []
@@ -372,10 +372,12 @@ def generate_mask(mask_index, size):
 
 
 
-def data_loader(dataset, batch_size, is_shuffle=True, drop_last=False):
+def data_loader(dataset, batch_size, is_shuffle=True, drop_last=False, epoch_ratio=1.0):
     idxs = list(range(len(dataset)))
     if is_shuffle:
         idxs = shuffle(idxs)
+    idxs = idxs[0: int(len(idxs)*epoch_ratio)]
+    # print("the idxs length:{}".format(len(idxs)))
     for idx in batch_holder(idxs, batch_size=batch_size)():
         idx = idx[0]
         if drop_last and len(idx) != batch_size:

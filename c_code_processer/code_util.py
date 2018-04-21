@@ -316,7 +316,7 @@ class ProductionNode(ParseNode):
 
     @property
     def children(self):
-        return [self._children_nodes[right_id] for right_id in self.production.right_id]
+        return [self._children_nodes[i] for i in range(len(self.production.right_id))]
 
     def is_all_filled(self):
         for right_id in self.production.right_id:
@@ -325,13 +325,11 @@ class ProductionNode(ParseNode):
         return True
 
     def _check_item(self, item):
-        if isinstance(item, str):
-            item = self._right_map[item]
-        elif isinstance(item, int):
+        if isinstance(item, int):
             pass
         else:
             raise TypeError("The type of item in ParseNode should be int or str")
-        if item not in self.production.right_id:
+        if not len(self.production.right_id) > item >= 0:
             raise KeyError("The item is not in the production right")
         return item
 
@@ -342,6 +340,9 @@ class ProductionNode(ParseNode):
     def __setitem__(self, key, value):
         item = self._check_item(key)
         self._children_nodes[item] = value
+
+    def __repr__(self):
+        return "{}".format(str(self.production))
 
 
 class LeafParseNode(ParseNode):
@@ -366,6 +367,9 @@ class LeafParseNode(ParseNode):
     def value(self):
         return self._value
 
+    def __repr__(self):
+        return "{}:{}".format(self.type_string, self.value)
+
 
 Token = collections.namedtuple("Token", ["type", "value"])
 
@@ -378,7 +382,7 @@ def show_production_node(node):
         next_tab = tab + prefix_tab
         print(tab+node.type_string)
         if node.is_leaf():
-            continue
+            print(tab + node.value)
         else:
             for child in reversed(node.children):
                 stack.append((next_tab, child))
@@ -451,9 +455,12 @@ class MonitoredParser(object):
                 for i, cache in enumerate(cached_p, start=1):
                     p[i] = cache
                 left_node = ProductionNode(production, p[0])
+                # has_ternimal_node = False
                 for i, (right_id, right) in enumerate(zip(production.right_id, production.right), start=1):
                     if production_vocabulary.is_ternimal(right_id):
                         value = p[i]
+                        # print(value)
+                        # has_ternimal_node = True
                         child_node = LeafParseNode(right,
                                                    value,
                                                    right_id)
@@ -461,7 +468,11 @@ class MonitoredParser(object):
                         child_node = p[i][1]
 
                     child_node.parent_node = left_node
-                    left_node[right_id] = child_node
+                    left_node[i-1] = child_node
+                # if has_ternimal_node:
+                #     print(left_node)
+                #     for child in left_node.children:
+                #         print(child)
                 p[0] = (p[0], left_node)
                 return res
 
