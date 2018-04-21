@@ -218,6 +218,9 @@ class ProductionVocabulary(object):
     def token_num(self):
         return len(self._token_set)
 
+    def get_production_id(self, production):
+        return self._production_id_map[production]
+
     @property
     def EMPTY(self):
         return self._EMPTY
