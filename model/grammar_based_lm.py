@@ -471,10 +471,10 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
-    data = read_parsed_top_down_code(True)
-    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 10, "grammar_lm_test.pkl", load_previous_model=True)
-    # train_and_evaluate(data, 16, 200, 200, 3, 0.001, 40, "grammar_lm_2.pkl")
-    # train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "grammar_lm_3.pkl")
+    data = read_parsed_top_down_code()
+    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 10, "grammar_lm_1.pkl", load_previous_model=True)
+    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 40, "grammar_lm_2.pkl")
+    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "grammar_lm_3.pkl")
     # monitor = MonitoredParser(lex_optimize=False,
     #                           yacc_debug=True,
     #                           yacc_optimize=False,
