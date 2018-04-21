@@ -398,3 +398,27 @@ def data_loader(dataset, batch_size, is_shuffle=True, drop_last=False, epoch_rat
 if __name__ == '__main__':
     make_dir('data', 'cache_data')
 
+
+def key_transform(transform, key, ):
+    def transform_fn(sample):
+        sample[key] = transform(sample[key])
+        return sample
+
+    return transform_fn
+
+
+class FlatMap(object):
+    """
+    This map the sample dict to a flat map
+    """
+    def __call__(self, sample: dict):
+        res = {}
+
+        def add_(d: dict):
+            for k, v in d.items():
+                if not isinstance(v, dict):
+                    res[k] = v
+                else:
+                    add_(v)
+        add_(sample)
+        return res

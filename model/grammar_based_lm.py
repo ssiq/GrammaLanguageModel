@@ -1,29 +1,23 @@
-import more_itertools
 import torch
 import torch.autograd as autograd
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset
-from torchvision import transforms, utils
-from torch import multiprocessing
+from torchvision import transforms
 
 import numpy as np
 import pandas as pd
 
-import typing
 import os
-import pickle
 
 import config
-from c_code_processer.code_util import parse_tree_to_top_down_process, ProductionVocabulary, \
-    get_all_c99_production_vocabulary, LeafToken, MonitoredParser, show_production_node
-from common import util, torch_util
-from common.constants import CACHE_DATA_PATH
-from common.util import generate_mask, show_process_map, data_loader, padded_to_length
+from c_code_processer.code_util import ProductionVocabulary, \
+    get_all_c99_production_vocabulary, LeafToken
+from common import torch_util
+from common.util import generate_mask, show_process_map, data_loader, padded_to_length, key_transform, FlatMap
 from embedding.wordembedding import load_vocabulary, Vocabulary
-from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map, read_parsed_tree_code, \
-    read_parsed_top_down_code
+from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map, read_parsed_top_down_code
 
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 PAD_TOKEN = -1
@@ -102,23 +96,6 @@ class GrammarLanguageModelTypeInputMap(object):
         return {"to_parse_token": to_parse_token_id, "terminal_mask": terminal_mask}
 
 
-class FlatMap(object):
-    """
-    This map the sample dict to a flat map
-    """
-    def __call__(self, sample: dict):
-        res = {}
-
-        def add_(d: dict):
-            for k, v in d.items():
-                if not isinstance(v, dict):
-                    res[k] = v
-                else:
-                    add_(v)
-        add_(sample)
-        return res
-
-
 class PadMap(object):
     def __init__(self, type_num):
         self._type_num = type_num
@@ -132,14 +109,6 @@ class PadMap(object):
             x['target'] = padded_to_length(x['target'], MAX_LENGTH, PAD_TOKEN)
             return x
         return pad_one_sample(sample)
-
-
-def key_transform(transform, key, ):
-    def transform_fn(sample):
-        sample[key] = transform(sample[key])
-        return sample
-
-    return transform_fn
 
 
 class GrammarLanguageModel(nn.Module):
