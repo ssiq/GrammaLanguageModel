@@ -19,6 +19,7 @@ from read_data.load_parsed_data import read_parsed_top_down_code, get_token_voca
 
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 MAX_LENGTH = 500
+GPU_INDEX = 1
 
 
 class CCodeDataSet(Dataset):
@@ -91,8 +92,50 @@ class ProductionIdMap(object):
 
 
 class SequenceProductionLanguageModel(nn.Module):
-    def __init__(self):
-        pass
+    def __init__(self,
+                 production_num,
+                 token_num,
+                 rnn_num_layers,
+                 hidden_state_size,
+                 embedding_dim,
+                 batch_size):
+        self._production_num = production_num
+        self._token_num = token_num
+        self._batch_size = batch_size
+        self._rnn_num_layers = rnn_num_layers
+        self._hidden_state_size = hidden_state_size
+        self._embedding_dim = embedding_dim
+
+        self.token_seq_initial_state = self.initial_state()
+        self.token_seq_rnn = self.rnn_seq()
+
+        self.production_seq_initial_state = self.initial_state()
+        self.production_srq_rnn = self.rnn_seq()
+
+        self.token_embedding = nn.Embedding(token_num, embedding_dim, sparse=True).cpu()
+        self.production_embedding = nn.Embedding(production_num, embedding_dim, sparse=True).cpu()
+
+        self.token_to_production_transformation = self.transformation_mlp()
+        self.production_to_token_transformation = self.transformation_mlp()
+
+
+    def initial_state(self):
+        return (nn.Parameter(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
+                             requires_grad=True).cuda(GPU_INDEX),
+                nn.Parameter(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
+                             requires_grad=True).cuda(GPU_INDEX))
+
+    def rnn_seq(self):
+        return nn.LSTM(input_size=self._embedding_dim,
+                           hidden_size=self._hidden_state_size,
+                           num_layers=self._rnn_num_layers,).cuda(GPU_INDEX)
+
+    def transformation_mlp(self):
+        return nn.Sequential(
+            nn.Linear(self._embedding_dim, self._embedding_dim),
+            nn.ReLU(),
+            nn.Linear(self._embedding_dim, self._embedding_dim),
+        ).cuda(GPU_INDEX)
 
     def forward(self, *input):
         pass
