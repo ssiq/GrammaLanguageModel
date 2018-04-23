@@ -27,12 +27,12 @@ class LSTMModel(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.batch_size = batch_size
+        self.drop = nn.Dropout(dropout).cuda(gpu_index)
 
         print('dictionary_size: {}, embedding_dim: {}, hidden_size: {}, num_layers: {}, batch_size: {}, bidirectional: {}, dropout: {}'.format(
             dictionary_size, embedding_dim, hidden_size, num_layers, batch_size, bidirectional, dropout))
 
         self.bidirectional_num = 2 if bidirectional else 1
-        self.dropout = dropout
 
 
         print('before create embedding')
@@ -72,6 +72,7 @@ class LSTMModel(nn.Module):
         embeds = self.word_embeddings(autograd.Variable(inputs).cuda(gpu_index)).view(self.batch_size, -1, self.embedding_dim).cuda(gpu_index)
         # print('embeds_size: {}, embeds is cuda: {}'.format(embeds.size(), embeds.is_cuda))
         embeds = embeds.view(self.batch_size, -1, self.embedding_dim)
+        embeds = self.drop(embeds).cuda(gpu_index)
         print('embeds_size: {}, embeds is cuda: {}'.format(embeds.size(), embeds.is_cuda))
         # print('embeds value: {}'.format(embeds.data))
         # print('after embeds token_length: {}'.format(token_lengths))
@@ -82,6 +83,7 @@ class LSTMModel(nn.Module):
 
         unpacked_lstm_out, unpacked_lstm_length = torch.nn.utils.rnn.pad_packed_sequence(lstm_out, batch_first=True,
                                                                                padding_value=0)
+        unpacked_lstm_out = self.drop(unpacked_lstm_out)
         dict_output = self.hidden2tag(unpacked_lstm_out).cuda(gpu_index)
         packed_dict_output = torch.nn.utils.rnn.pack_padded_sequence(dict_output, token_lengths, batch_first=True)
 
@@ -108,9 +110,10 @@ def train(model, X, y, optimizer, loss_function, batch_size):
     steps = 0
     total_loss = torch.Tensor([0])
     print('before shuffle')
-    X, y = shuffle(X, y)
+    X, y = shuffle(X, y, n_samples=int(len(X)/4))
     print('finish shuffle: x: {}, y: {}'.format(len(X), len(y)))
     batch_token_count = 0
+    model.train()
 
     for inp, out in batch_holder(X, y, batch_size=batch_size)():
         if len(inp) != batch_size:
@@ -156,6 +159,7 @@ def train(model, X, y, optimizer, loss_function, batch_size):
         total_loss += (loss.data.cpu() * one_batch_count)
 
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
         optimizer.step()
 
         if steps % 1000 == 0:
@@ -173,6 +177,7 @@ def evaluate(model, X, y, loss_function, batch_size):
     steps = 0
     total_loss = torch.Tensor([0])
     batch_token_count = 0
+    model.eval()
 
     for inp, out in batch_holder(X, y, batch_size=batch_size)():
         if len(inp) != batch_size:
@@ -314,19 +319,26 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
           format(saved_name, best_valid_perplexity, best_test_perplexity))
 
 
+def read_wiki_dataset():
+    from torchtext import datasets
+    train_iter, valid_iter, test_iter = datasets.WikiText2.iters(batch_size=4, bptt_len=30)
+
+
 
 if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     # torch.backends.cudnn.benchmark = True
     print('start')
 
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl')
-    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_2.pkl', load_path='neural_lstm_2.pkl')
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl')
-    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_4.pkl', load_path='neural_lstm_4.pkl')
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl')
+    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_2.pkl', load_path='neural_lstm_2.pkl')
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl')
+    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_4.pkl', load_path='neural_lstm_4.pkl')
 
-    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=3, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_5.pkl', load_path='neural_lstm_5.pkl')
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=3, bidirectional=False, dropout=0, learning_rate=0.001, batch_size=16, epoches=10, saved_name='neural_lstm_6.pkl', load_path='neural_lstm_6.pkl')
+    # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=3, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=10, saved_name='neural_lstm_5.pkl', load_path='neural_lstm_5.pkl')
+        # final train perplexity of 9.800065994262695,  valid perplexity of 10.168289184570312, test perplexity of 10.024857521057129
+        # The model neural_lstm_5.pkl best valid perplexity is 10.168289184570312 and test perplexity is 10.024857521057129
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=3, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_6.pkl', load_path='neural_lstm_6.pkl')
 
 
     # model = LSTMModel(dictionary_size=20, embedding_dim=50, hidden_size=200, num_layers=3, batch_size=1, bidirectional=False, dropout=0)

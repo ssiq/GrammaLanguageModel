@@ -13,6 +13,7 @@ import sklearn
 import pandas as pd
 import sys
 import cytoolz as toolz
+import collections
 
 import time
 
@@ -395,8 +396,163 @@ def data_loader(dataset, batch_size, is_shuffle=True, drop_last=False, epoch_rat
         yield toolz.merge_with(lambda x:x, batch)
 
 
-if __name__ == '__main__':
-    make_dir('data', 'cache_data')
+# ---------------------------------- PaddedList ------------------------------------------- #
+
+class PaddedList(collections.Sequence):
+    """
+    list() -> new empty list
+    list(iterable) -> new list initialized from iterable's items
+    """
+
+    def __init__(self, l, fill_value=0, shape=None):
+        self.l = l
+        self.fill_value = fill_value
+
+        self.shape = self._l_shape(self.l) if shape is None else shape
+
+
+    def _l_shape(self, l):
+        if not isinstance(l, collections.Sized) and not isinstance(l, collections.Iterable):
+            return []
+        sh = [len(l)]
+
+        cur_max_shape = None
+        for one in l:
+            one_shape = self._l_shape(one)
+            cur_max_shape = self._cal_max_shapes(cur_max_shape, one_shape) if cur_max_shape is not None else one_shape
+
+        if cur_max_shape is not None:
+            sh += cur_max_shape
+        return sh
+
+    def _cal_max_shapes(self, ori_shape, one_shape):
+        if len(ori_shape) != len(one_shape):
+            raise ShapeDifferentException('Shape error. There are different shape in list. original shape is {}, current shape is {}'.format(ori_shape, one_shape))
+
+        max_shape = []
+        for ori, one in zip(ori_shape, one_shape):
+            max_shape += [max(ori, one)]
+        return max_shape
+
+    # make sure the len(l_shape) == len(shape). This example l = [1, 2, 3], shape = [4, 4] will not appear.
+    # the fill list and fill number will always append to the end
+    def _create_list_as_shape(self, l, shape, fill_value=0):
+        if not isinstance(l, collections.Sized) and not isinstance(l, collections.Iterable):
+            if len(shape) > 0:
+                raise ListShapeErrorException('the depth of list is smaller than len(shape).')
+        if len(shape) <= 0:
+            raise ListShapeErrorException('shape <= 0')
+        # fill value to list
+        if len(shape) == 1:
+            tmp = [fill_value for i in range(shape[0] - len(l))]
+            t = l + tmp
+            return t
+        # Recursive call _create_list_as_shape
+        res = []
+        for i in l:
+            one = self._create_list_as_shape(i, shape[1:])
+            res += [one]
+        # add fill list
+        if len(l) < shape[0]:
+            for i in range(shape[0] - len(l)):
+                res += [self._create_list_as_shape([], shape[1:])]
+        elif len(l) > shape[0]:
+            raise ListShapeErrorException('dim of list is larger than shape. l_len: {}, shape: {}'.format(len(l), shape[0]))
+        return res
+
+    def to_list(self):
+        res = self._create_list_as_shape(self.l, self.shape, self.fill_value)
+        return res
+
+    def __getitem__(self, item):
+        ori = item
+        if isinstance(item, int):
+            if item < 0:
+                item += len(self)
+            if item < 0 or item > len(self):
+                raise IndexError('The index {} is out of range {}'.format(ori, len(self)))
+            if len(self.shape) == 1:
+                res = self.l[item] if item < len(self.l) else self.fill_value
+                return res
+            if item >= len(self.l) and item < self.shape[0]:
+                return PaddedList([], fill_value=self.fill_value, shape=self.shape[1:])
+            elif item >= self.shape[0]:
+                raise IndexError('index out of range. list length: {}, i: {}'.format(self.shape[0], item))
+            return PaddedList(self.l[item], fill_value=self.fill_value, shape=self.shape[1:])
+        elif isinstance(item, slice):
+            # len(self.l) == shape[0] should be True. In other word, the first dim should be full.
+            tmp_sli = [self.l[ii] for ii in range(*item.indices(len(self)))]
+            tmp_shape = [len(tmp_sli)] + self.shape[1:]
+            return PaddedList(tmp_sli, fill_value=self.fill_value, shape=tmp_shape)
+        else:
+            raise TypeError('Invalid argument type. except int or slice but fount {}'.format(type(item)))
+
+    def __len__(self):
+        return self.shape[0]
+
+    def __contains__(self, item):
+        for i in self:
+            if i == item:
+                return True
+        return False
+
+    def __iter__(self):
+        if len(self.shape) == 1:
+            for i in range(len(self.l)):
+                yield self.l[i]
+            for i in range(len(self.l), self.shape[0]):
+                yield self.fill_value
+        else:
+            for i in range(len(self.l)):
+                yield PaddedList(self.l[i], fill_value=self.fill_value, shape=self.shape[1:])
+            for i in range(len(self.l), self.shape[0]):
+                yield PaddedList([], fill_value=self.fill_value, shape=self.shape[1:])
+
+    def __reversed__(self):
+        l_len = len(self.l)
+        if len(self.shape) == 1:
+            for i in range(l_len, self.shape[0]):
+                yield self.fill_value
+            for i in range(l_len):
+                yield self.l[l_len - i - 1]
+        else:
+            for i in range(l_len, self.shape[0]):
+                yield PaddedList([], fill_value=self.fill_value, shape=self.shape[1:])
+            for i in range(l_len):
+                yield PaddedList(self.l[l_len - i - 1], fill_value=self.fill_value, shape=self.shape[1:])
+
+    def __eq__(self, other):
+        if isinstance(other, PaddedList):
+            if other.l == self.l and other.shape == self.shape and other.fill_value == self.fill_value:
+                return True
+        return False
+
+    def __ne__(self, other):
+        if isinstance(other, PaddedList):
+            if other.l == self.l and other.shape == self.shape and other.fill_value == self.fill_value:
+                return False
+        return True
+
+    def index(self, x, start: int = ..., end: int = ...):
+        for i in range(len(self)):
+            if self[i] == x:
+                return i
+        return -1
+
+    def count(self, x):
+        cou = 0
+        for i in self:
+            if i == x:
+                cou += 1
+        return cou
+
+
+class ShapeDifferentException(Exception):
+    pass
+
+
+class ListShapeErrorException(Exception):
+    pass
 
 
 def key_transform(transform, key, ):
