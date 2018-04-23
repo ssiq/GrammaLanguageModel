@@ -56,9 +56,20 @@ def pad_packed_sequence(packed_sequence, idx_unsort, pad_value, batch_firse=Fals
 
 
 def pack_sequence(sequences, GPU_INDEX=0):
-    length = [len(seq) for seq in sequences]
+    length = torch.Tensor([len(seq) for seq in sequences])
     _, idx_sort = torch.sort(length, dim=0, descending=True)
     _, idx_unsort = torch.sort(idx_sort, dim=0)
     sequences = sorted(sequences, key=lambda x: len(x), reverse=True)
     packed_sequences = torch.nn.utils.rnn.pack_sequence(sequences)
     return packed_sequences, idx_unsort
+
+
+def create_ori_index_to_packed_index_dict(batch_sizes):
+    begin_index = 0
+    end_index = 0
+    res = {}
+    for i in range(batch_sizes):
+        end_index += batch_sizes[i]
+        for j in range(end_index-begin_index):
+            res[(i, j)] = begin_index + j
+    return res

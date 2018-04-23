@@ -9,6 +9,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms, utils
 
 import pandas as pd
+import more_itertools
 
 import config
 from c_code_processer.code_util import LeafToken, MonitoredParser, parse_tree_to_top_down_process, \
@@ -221,9 +222,23 @@ class SequenceProductionLanguageModel(nn.Module):
         for token_feature, production_embedding in zip(token_rnn_features_batch, production_sequences_embedding):
             mixed_production_sequence.append(self._concat_token_and_production(token_feature, production_embedding))
 
+        lengths, sort_idx = torch.sort([len(k) for k in mixed_production_sequence])
         mixed_production_sequence, unsort_index = torch_util.pack_sequence(mixed_production_sequence, )
-        predict_tokens = []
+        index_map_dict = torch_util.create_ori_index_to_packed_index_dict(mixed_production_sequence.batch_sizes)
+        predict_index = util.index_select(predict_index, sort_idx)
+        predict_index = [[(i, t) for t in k] for i, k in enumerate(predict_index)]
+        predict_index = util.index_select(predict_index, unsort_index)
+        predict_index = more_itertools.flatten(predict_index)
+        production_index = sorted(set(index_map_dict.keys()) - set(predict_index))
+        predict_index = [index_map_dict[t] for t in predict_index]
         mixed_production_sequence = self.production_seq_rnn(mixed_production_sequence)
+        token_predict = torch.index_select(mixed_production_sequence.data, index=to_cuda(torch.Tensor(predict_index)), dim=0)
+        token_predict = self.token_predict_mlp(self.production_to_token_transformation(token_predict))
+        production_index = [index_map_dict[t] for t in production_index]
+        production_predict = torch.index_select(mixed_production_sequence.data, index=to_cuda(torch.Tensor(production_index)),
+                                                dim=0)
+        production_predict = self.production_predict_mlp(production_predict)
+        return token_predict, production_predict
 
 
 def train(model, train_dataset, batch_size, loss_function, optimizer):
