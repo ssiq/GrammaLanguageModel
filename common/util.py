@@ -578,3 +578,7 @@ class FlatMap(object):
                     add_(v)
         add_(sample)
         return res
+
+
+def index_select(seq: typing.List, index: typing.List[int]):
+    return [seq[k] for k in index]

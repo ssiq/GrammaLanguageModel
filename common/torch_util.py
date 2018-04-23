@@ -47,9 +47,29 @@ def pack_padded_sequence(padded_sequence, length, batch_firse=False,GPU_INDEX=0)
 
 
 def pad_packed_sequence(packed_sequence, idx_unsort, pad_value, batch_firse=False, GPU_INDEX=0):
-    padded_sequence, _ = torch.nn.utils.rnn.pad_packed_sequence(packed_sequence, batch_first=batch_firse,
+    padded_sequence, length = torch.nn.utils.rnn.pad_packed_sequence(packed_sequence, batch_first=batch_firse,
                                                                 padding_value=pad_value)
     if padded_sequence.is_cuda:
-        return torch.index_select(padded_sequence, 0, torch.autograd.Variable(idx_unsort).cuda(GPU_INDEX))
+        return torch.index_select(padded_sequence, 0, torch.autograd.Variable(idx_unsort).cuda(GPU_INDEX)), length
     else:
-        return torch.index_select(padded_sequence, 0, torch.autograd.Variable(idx_unsort))
+        return torch.index_select(padded_sequence, 0, torch.autograd.Variable(idx_unsort)), length
+
+
+def pack_sequence(sequences, GPU_INDEX=0):
+    length = torch.Tensor([len(seq) for seq in sequences])
+    _, idx_sort = torch.sort(length, dim=0, descending=True)
+    _, idx_unsort = torch.sort(idx_sort, dim=0)
+    sequences = sorted(sequences, key=lambda x: len(x), reverse=True)
+    packed_sequences = torch.nn.utils.rnn.pack_sequence(sequences)
+    return packed_sequences, idx_unsort
+
+
+def create_ori_index_to_packed_index_dict(batch_sizes):
+    begin_index = 0
+    end_index = 0
+    res = {}
+    for i in range(batch_sizes):
+        end_index += batch_sizes[i]
+        for j in range(end_index-begin_index):
+            res[(i, j)] = begin_index + j
+    return res
