@@ -308,7 +308,7 @@ def train(model,
         target, idx_unsort = torch_util.pack_padded_sequence(
             autograd.Variable(torch.LongTensor(target)).cuda(GPU_INDEX),
             batch_data['length'], batch_firse=True, GPU_INDEX=GPU_INDEX)
-        target = torch_util.pad_packed_sequence(target, idx_unsort, pad_value=PAD_TOKEN, batch_firse=True,
+        target, _ = torch_util.pad_packed_sequence(target, idx_unsort, pad_value=PAD_TOKEN, batch_firse=True,
                                                 GPU_INDEX=GPU_INDEX)
 
         loss = loss_function(batch_log_probs, target.view(-1))
@@ -354,7 +354,7 @@ def evaluate(model,
         batch_log_probs = log_probs.view(-1, list(log_probs.size())[-1])
         target, idx_unsort = torch_util.pack_padded_sequence(autograd.Variable(torch.LongTensor(target)).cuda(GPU_INDEX),
                                                              batch_data['length'], batch_firse=True, GPU_INDEX=GPU_INDEX)
-        target = torch_util.pad_packed_sequence(target, idx_unsort, pad_value=PAD_TOKEN, batch_firse=True,
+        target, _ = torch_util.pad_packed_sequence(target, idx_unsort, pad_value=PAD_TOKEN, batch_firse=True,
                                                 GPU_INDEX=GPU_INDEX)
 
         loss = loss_function(batch_log_probs, target.view(-1))

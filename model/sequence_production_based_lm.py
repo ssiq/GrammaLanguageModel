@@ -14,6 +14,7 @@ import config
 from c_code_processer.code_util import LeafToken, MonitoredParser, parse_tree_to_top_down_process, \
     get_all_c99_production_vocabulary
 from common import torch_util
+from common import util
 from common.util import show_process_map, key_transform, FlatMap
 from embedding.wordembedding import Vocabulary, load_vocabulary
 from read_data.load_parsed_data import read_parsed_top_down_code, get_token_vocabulary, get_vocabulary_id_map
@@ -88,22 +89,28 @@ class ProductionIdMap(object):
         self.get_production_id = get_production_id
 
     def __call__(self, sample):
+        def cal_token_index(seq):
+            res = []
+            index = 0
+            for s in seq:
+                index += len(s)
+                res.append(index)
+                index += 1
+            res.append(index)
+            return res
+
         def get_production_id(x):
             res = self.get_production_id(x)
             # print("get production {}'s id is {}".format(x, res))
             return res
         sample = [[get_production_id(token) for token in sub_part] for sub_part in sample]
-        return {"productions": sample}
+        predict_index = [cal_token_index(p) for p in sample]
+        return {"productions": sample, "predict_index": predict_index}
 
 
 class SequenceProductionLanguageModel(nn.Module):
-    def __init__(self,
-                 production_num,
-                 token_num,
-                 rnn_num_layers,
-                 hidden_state_size,
-                 embedding_dim,
-                 batch_size):
+    def __init__(self, production_num, token_num, rnn_num_layers, hidden_state_size, embedding_dim, batch_size):
+        super().__init__()
         self._production_num = production_num
         self._token_num = token_num
         self._batch_size = batch_size
@@ -123,6 +130,17 @@ class SequenceProductionLanguageModel(nn.Module):
         self.token_to_production_transformation = self.transformation_mlp()
         self.production_to_token_transformation = self.transformation_mlp()
 
+        self.token_predict_mlp = to_cuda(nn.Sequential(
+            nn.Linear(hidden_state_size, hidden_state_size),
+            nn.ReLU(),
+            nn.Linear(hidden_state_size, token_num)
+        ))
+
+        self.production_predict_mlp = to_cuda(nn.Sequential(
+            nn.Linear(hidden_state_size, hidden_state_size),
+            nn.ReLU(),
+            nn.Linear(hidden_state_size, production_num)
+        ))
 
     def initial_state(self):
         return (to_cuda(nn.Parameter(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
@@ -142,41 +160,70 @@ class SequenceProductionLanguageModel(nn.Module):
             nn.Linear(self._embedding_dim, self._embedding_dim),
         ))
 
-    def _predict_next_token(self,
-                            now_token_embedding,
-                            sub_production_seq,
-                            start_hidden_state):
-        packed_sequence = rnn_util.pack_sequence(sub_production_seq)
-        packed_sequence = rnn_util.PackedSequence(
-            to_cuda(self.production_embedding(packed_sequence.data)),
-            packed_sequence.batch_sizes,
-        )
-        now_token_embedding.unsqueeze_(0)
-        first_predict, start_hidden_state = self.production_seq_rnn(now_token_embedding, start_hidden_state)
-        other_predict, end_hidden_state = self.production_seq_rnn(packed_sequence, start_hidden_state)
-        first_predict.squeeze_()
+    def _production_embedding(self, production_sequences):
+        return [[to_cuda(self.production_embedding(p)) for p in production] for production in production_sequences]
 
+    def _get_batch_from_packed_sequence(self, packed_sequence, batch_sizes):
+        res = []
+        begin_index = 0
+        end_index = 0
+        for i in range(batch_sizes):
+            end_index += batch_sizes[i]
+            now_token_embedding = packed_sequence[begin_index:end_index]
+            begin_index += batch_sizes[i]
+            res.append(now_token_embedding)
+        return res
 
+    def _stack_batch(self, batch):
+        res = []
+        for i in range(len(batch[0])):
+            r = []
+            for b in batch:
+                if i >= len(b):
+                    break
+                r.append(b[i])
+            res.append(r)
+        return res
+
+    def _concat_token_and_production(self, tokens, productions):
+        for t in tokens:
+            t.unsqueeze_(0)
+        res = [tokens[0]]
+        for t, p in zip(tokens[1:], productions):
+            res.append(p)
+            res.append(t)
+        return torch.cat(res,)
 
     def forward(self,
                 productions,
                 tokens,
+                predict_index,
                 ):
-        packed_sequence = rnn_util.pack_sequence(tokens)
+        packed_sequence, idx_unsort = torch_util.pack_sequence(tokens)
         packed_sequence = rnn_util.PackedSequence(
             to_cuda(self.token_embedding(packed_sequence.data)),
             packed_sequence.batch_sizes,
         )
         token_rnn_features = self.token_seq_rnn(packed_sequence, self.token_seq_initial_state)
+        token_rnn_features = rnn_util.PackedSequence(
+            self.token_to_production_transformation(token_rnn_features.data),
+            token_rnn_features.batch_sizes
+        )
+
+        unbinded_token_rnn_features = torch.unbind(token_rnn_features.data)
+        token_rnn_features_batch = self._get_batch_from_packed_sequence(unbinded_token_rnn_features,
+                                                                        token_rnn_features.batch_sizes)
+        token_rnn_features_batch = self._stack_batch(token_rnn_features_batch)
+        token_rnn_features_batch = util.index_select(token_rnn_features_batch, idx_unsort)
+
+        production_sequences_embedding = self._production_embedding(productions)
+        mixed_production_sequence = []
+        for token_feature, production_embedding in zip(token_rnn_features_batch, production_sequences_embedding):
+            mixed_production_sequence.append(self._concat_token_and_production(token_feature, production_embedding))
+
+        mixed_production_sequence, unsort_index = torch_util.pack_sequence(mixed_production_sequence, )
         predict_tokens = []
-        begin_index = 0
-        end_index = 0
-        start_hideen_state = self.production_seq_initial_state
-        for i in range(token_rnn_features.batch_sizes):
-            end_index += token_rnn_features.batch_sizes[i]
-            now_token_embedding = token_rnn_features[begin_index:end_index]
-            predict_tokens.append(self._predict_next_token(now_token_embedding, productions[i], start_hideen_state))
-            begin_index += token_rnn_features.batch_sizes[i]
+        mixed_production_sequence = self.production_seq_rnn(mixed_production_sequence)
 
 
 def train(model, train_dataset, batch_size, loss_function, optimizer):
