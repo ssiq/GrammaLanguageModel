@@ -2,6 +2,7 @@ import os
 import torch
 import torch.autograd as autograd
 import torch.nn as nn
+import torch.nn.utils.rnn as rnn_util
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset
@@ -20,6 +21,10 @@ from read_data.load_parsed_data import read_parsed_top_down_code, get_token_voca
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 MAX_LENGTH = 500
 GPU_INDEX = 1
+PAD_TOKEN = -1
+
+def to_cuda(x):
+    return x.cuda(GPU_INDEX)
 
 
 class CCodeDataSet(Dataset):
@@ -45,7 +50,7 @@ class CCodeDataSet(Dataset):
         sample = {"tree": self.data_df.iloc[index]["parse_tree"],
                   "tokens": tokens[:-1],
                   "target": tokens[1:],
-                  "length": len(tokens)-1}
+                  }
         return sample
 
     def __getitem__(self, index):
@@ -110,7 +115,7 @@ class SequenceProductionLanguageModel(nn.Module):
         self.token_seq_rnn = self.rnn_seq()
 
         self.production_seq_initial_state = self.initial_state()
-        self.production_srq_rnn = self.rnn_seq()
+        self.production_seq_rnn = self.rnn_seq()
 
         self.token_embedding = nn.Embedding(token_num, embedding_dim, sparse=True).cpu()
         self.production_embedding = nn.Embedding(production_num, embedding_dim, sparse=True).cpu()
@@ -120,25 +125,58 @@ class SequenceProductionLanguageModel(nn.Module):
 
 
     def initial_state(self):
-        return (nn.Parameter(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
-                             requires_grad=True).cuda(GPU_INDEX),
-                nn.Parameter(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
-                             requires_grad=True).cuda(GPU_INDEX))
+        return (to_cuda(nn.Parameter(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
+                             requires_grad=True)),
+                to_cuda(nn.Parameter(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
+                             requires_grad=True)))
 
     def rnn_seq(self):
-        return nn.LSTM(input_size=self._embedding_dim,
+        return to_cuda(nn.LSTM(input_size=self._embedding_dim,
                            hidden_size=self._hidden_state_size,
-                           num_layers=self._rnn_num_layers,).cuda(GPU_INDEX)
+                           num_layers=self._rnn_num_layers,))
 
     def transformation_mlp(self):
-        return nn.Sequential(
+        return to_cuda(nn.Sequential(
             nn.Linear(self._embedding_dim, self._embedding_dim),
             nn.ReLU(),
             nn.Linear(self._embedding_dim, self._embedding_dim),
-        ).cuda(GPU_INDEX)
+        ))
 
-    def forward(self, *input):
-        pass
+    def _predict_next_token(self,
+                            now_token_embedding,
+                            sub_production_seq,
+                            start_hidden_state):
+        packed_sequence = rnn_util.pack_sequence(sub_production_seq)
+        packed_sequence = rnn_util.PackedSequence(
+            to_cuda(self.production_embedding(packed_sequence.data)),
+            packed_sequence.batch_sizes,
+        )
+        now_token_embedding.unsqueeze_(0)
+        first_predict, start_hidden_state = self.production_seq_rnn(now_token_embedding, start_hidden_state)
+        other_predict, end_hidden_state = self.production_seq_rnn(packed_sequence, start_hidden_state)
+        first_predict.squeeze_()
+
+
+
+    def forward(self,
+                productions,
+                tokens,
+                ):
+        packed_sequence = rnn_util.pack_sequence(tokens)
+        packed_sequence = rnn_util.PackedSequence(
+            to_cuda(self.token_embedding(packed_sequence.data)),
+            packed_sequence.batch_sizes,
+        )
+        token_rnn_features = self.token_seq_rnn(packed_sequence, self.token_seq_initial_state)
+        predict_tokens = []
+        begin_index = 0
+        end_index = 0
+        start_hideen_state = self.production_seq_initial_state
+        for i in range(token_rnn_features.batch_sizes):
+            end_index += token_rnn_features.batch_sizes[i]
+            now_token_embedding = token_rnn_features[begin_index:end_index]
+            predict_tokens.append(self._predict_next_token(now_token_embedding, productions[i], start_hideen_state))
+            begin_index += token_rnn_features.batch_sizes[i]
 
 
 def train(model, train_dataset, batch_size, loss_function, optimizer):
