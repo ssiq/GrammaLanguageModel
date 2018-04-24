@@ -442,8 +442,11 @@ if __name__ == '__main__':
     torch.backends.cudnn.fastest = True
     data = read_parsed_top_down_code()
     train_and_evaluate(data, 16, 100, 100, 3, 0.001, 30, "grammar_lm_1.pkl", load_previous_model=True)
+    #The model grammar_lm_1.pkl best valid perplexity is 2.969740629196167 and test perplexity is 2.9544827938079834
     train_and_evaluate(data, 16, 200, 200, 3, 0.001, 30, "grammar_lm_2.pkl", load_previous_model=True)
-    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "grammar_lm_3.pkl")
+    #The model grammar_lm_2.pkl best valid perplexity is 3.4944088459014893 and test perplexity is 3.4697518348693848
+    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "grammar_lm_3.pkl", load_previous_model=True)
+    #The model grammar_lm_3.pkl best valid perplexity is 3.5213215351104736 and test perplexity is 3.495988368988037
     # monitor = MonitoredParser(lex_optimize=False,
     #                           yacc_debug=True,
     #                           yacc_optimize=False,

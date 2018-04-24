@@ -68,8 +68,9 @@ def create_ori_index_to_packed_index_dict(batch_sizes):
     begin_index = 0
     end_index = 0
     res = {}
-    for i in range(batch_sizes):
+    for i in range(len(batch_sizes)):
         end_index += batch_sizes[i]
         for j in range(end_index-begin_index):
-            res[(i, j)] = begin_index + j
+            res[(j, i)] = begin_index + j
+        begin_index += batch_sizes[i]
     return res
