@@ -474,9 +474,9 @@ def train_and_evaluate(data,
 
 if __name__ == '__main__':
     data = read_parsed_top_down_code()
-    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 10, "sequence_production_1.pkl")
-    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 10, "sequence_production_2.pkl")
-    train_and_evaluate(data, 16, 200, 300, 3, 0.001, 10, "sequence_production_3.pkl")
+    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 40, "sequence_production_1.pkl")
+    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 40, "sequence_production_2.pkl")
+    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "sequence_production_3.pkl")
     # monitor = MonitoredParser(lex_optimize=False,
     #                           yacc_debug=True,
     #                           yacc_optimize=False,
