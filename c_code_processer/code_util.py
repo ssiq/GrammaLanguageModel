@@ -256,6 +256,22 @@ def get_all_c99_production_vocabulary():
     return production_vocabulary
 
 
+def show_all_c99_productions():
+    is_p_fn = create_is_p_fn()
+    parser = pycparser.CParser()
+    parse_fn_tuple_list = filter(lambda x: is_p_fn(x[0]) and x[0] != "p_error", inspect.getmembers(parser))
+    production_list = map(lambda x: x[1].__doc__, parse_fn_tuple_list)
+    # pattern = re.compile(":")
+    for p in production_list:
+        left, rights = p.split(":")
+        left = left.strip()
+        rights = rights.split("|")
+        rights = [re.split("\s+", right.strip()) for right in rights]
+        rights = [" ".join(right) for right in rights]
+        rights = "|".join(rights)
+        print("{} : {}".format(left, rights))
+
+
 class ParseNode(metaclass=abc.ABCMeta):
 
     def __init__(self):
@@ -527,25 +543,26 @@ class MonitoredParser(object):
 
 
 if __name__ == '__main__':
-    print(get_all_c99_production_vocabulary())
-    monitor = MonitoredParser(lex_optimize=False,
-                yacc_debug=True,
-                yacc_optimize=False,
-                yacctab='yacctab')
-    code = """
-        int add(int a, int b)
-        {
-            return a+b*c;
-        }
-        """
-    # show_production_node(monitor.parse_get_production_list_and_token_list(code)[0])
-    # print("The second show")
-    # show_production_node(monitor.parse_get_production_list_and_token_list(code)[0])
-    # production_vocabulary = get_all_c99_production_vocabulary()
-    # print(production_vocabulary)
-    # print(production_vocabulary._match_terminal_node)
-    print("top_down_show")
-    for t in parse_tree_to_top_down_process(monitor.parse_get_production_list_and_token_list(code)[0]):
-        print(t)
+    show_all_c99_productions()
+    # print(get_all_c99_production_vocabulary())
+    # monitor = MonitoredParser(lex_optimize=False,
+    #             yacc_debug=True,
+    #             yacc_optimize=False,
+    #             yacctab='yacctab')
+    # code = """
+    #     int add(int a, int b)
+    #     {
+    #         return a+b*c;
+    #     }
+    #     """
+    # # show_production_node(monitor.parse_get_production_list_and_token_list(code)[0])
+    # # print("The second show")
+    # # show_production_node(monitor.parse_get_production_list_and_token_list(code)[0])
+    # # production_vocabulary = get_all_c99_production_vocabulary()
+    # # print(production_vocabulary)
+    # # print(production_vocabulary._match_terminal_node)
+    # print("top_down_show")
+    # for t in parse_tree_to_top_down_process(monitor.parse_get_production_list_and_token_list(code)[0]):
+    #     print(t)
 
 
