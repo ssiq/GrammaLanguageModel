@@ -32,15 +32,28 @@ def extract_include_from_code(code):
 def remove_include(code):
     lines = code.split('\n')
     pattern = re.compile('#include *<(.*)>|#include *"(.*)"')
-    lines_without_include = list(filter(lambda line: pattern.match(line) is None, lines))
+    lines_without_include = list(filter(lambda line: pattern.match(line.strip()) is None, lines))
     return '\n'.join(lines_without_include)
 
 
 def replace_include_with_blank(code):
     lines = code.split('\n')
     pattern = re.compile('#include *<(.*)>|#include *"(.*)"')
-    lines_without_include = [line if pattern.match(line) is None else '' for line in lines]
+    lines_without_include = [line if pattern.match(line.strip()) is None else '' for line in lines]
     return '\n'.join(lines_without_include)
+
+
+def replace_define_with_blank(code):
+    lines = code.split('\n')
+    pattern = re.compile('#define .*')
+    lines_without_define = [line if pattern.match(line.strip()) is None else '' for line in lines]
+    return '\n'.join(lines_without_define)
+
+
+def replace_hashtag_with_blank(code):
+    lines = code.split('\n')
+    lines_without_hashtag = [line if line.strip()[0] != '#' else '' for line in lines]
+    return '\n'.join(lines_without_hashtag)
 
 
 def analyse_include_line_no(code, include_lines):
@@ -543,7 +556,41 @@ class MonitoredParser(object):
 
 
 if __name__ == '__main__':
-    show_all_c99_productions()
+
+    code = ''' #include <math.h> 
+ #define a b
+ int max(int a,int b){ 
+ if (a>b)return a; 
+ else return b;} 
+int main(void) { 
+ int n,a,b,c; 
+ scanf( "%d %d %d %d" ,&n,&a,&b,&c); 
+ int da[n+1]; 
+ for(int i=0;i<=n;i++){ 
+ da[i]=0; 
+ } 
+ for(int i=1;i<=n;i++){ 
+ int x=-1,y=-1,z=-1; 
+ if(i>a){ 
+ x=da[i-a]; 
+ } 
+ if(i>b){ 
+ y=da[i-b]; 
+ } 
+ if(i>c){ 
+ y=da[i-c]; 
+ } 
+ da[i]=max(max(x,y),z)+1; 
+ } 
+ printf( "%d" ,da[1]); 
+ return 0; 
+}'''
+    # code = replace_include_with_blank(code)
+    # code = replace_define_with_blank(code)
+    # code = replace_hashtag_with_blank(code)
+    print(code)
+
+    # show_all_c99_productions()
     # print(get_all_c99_production_vocabulary())
     # monitor = MonitoredParser(lex_optimize=False,
     #             yacc_debug=True,
