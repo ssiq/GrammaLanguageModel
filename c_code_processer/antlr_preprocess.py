@@ -1,3 +1,5 @@
+import multiprocessing
+
 from c_code_processer.antlr_util import MonitorParser, create_register_enter_listener_parser, \
     TokenRecords, extrace_token_to_dict, set_global_recorder, get_global_recorder, ExceptionErrorListener
 from c_code_processer.c_antlr.CLexer import CLexer
@@ -22,20 +24,22 @@ def collect_antlr_parser(code):
     tokens = stream.tokens
     if len(tokens) >= max_token_count:
         return None, None
-    tokens = [extrace_token_to_dict(tok, parser.symbolicNames) for tok in tokens]
+    tokens = [extrace_token_to_dict(tok) for tok in tokens]
 
     parser = create_register_enter_listener_parser(parser)
 
-    tree = parser.compilationUnit()
+    parser.compilationUnit()
+    del code_stream, lexer, stream, parser
     global_recorder = get_global_recorder()
-    return tokens, global_recorder
+    return tokens, global_recorder.total_records
 
 count = 0
 failed = 0
 def collect_one_records(one, total):
+    current = multiprocessing.current_process()
     global count, failed
     count += 1
-    print('in one {}/{}/{}'.format(count, failed, total))
+    print('{}, {} in one {}/{}/{}'.format(current.pid, current.name, count, failed, total))
     code = one['code']
     if 'include' in code:
         code = replace_include_with_blank(code)
@@ -55,33 +59,152 @@ def collect_one_records(one, total):
     if tokens is None:
         return one
     print(len(tokens))
-    print(len(records.total_records), len(records.state_records), len(records.rule_records))
+    # print(len(records.total_records), len(records.state_records), len(records.rule_records))
+    print(len(records))
     sys.stdout.flush()
     sys.stderr.flush()
     return one
 
 
+def main():
+    s = '''
+        int f(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    }
+
+    int f2(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    	while(True){
+    	    break;
+    	}
+    }
+    int f(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    }
+
+    int f2(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    	while(True){
+    	    break;
+    	}
+    }
+    int f(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    }
+
+    int f2(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    	while(True){
+    	    break;
+    	}
+    }
+    int f(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    }
+
+    int f2(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    	while(True){
+    	    break;
+    	}
+    }
+    int f(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    }
+
+    int f2(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    	while(True){
+    	    break;
+    	}
+    }
+    int f(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    }
+
+    int f2(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    	while(True){
+    	    break;
+    	}
+    }
+    int f(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    }
+
+    int f2(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    	while(True){
+    	    break;
+    	}
+    }
+    int f(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    }
+
+    int f2(int arg1, char arg2)
+    {
+    	a1(arg1);
+    	a2(arg1, arg2);
+    	a3();
+    	while(True){
+    	    break;
+    	}
+    }
+    '''
+    # for i in range(100):
+    #     tokens, global_recorder = collect_antlr_parser(s)
+    tokens, global_recorder = collect_antlr_parser(s)
+    print(len(tokens))
+    print(len(global_recorder))
+
 if __name__ == '__main__':
 
-    s = ''' #include <stdio.h>
-    int f(int arg1, char arg2)
-{
-	a1(arg1);
-	a2(arg1, arg2);
-	a3();
-}
-
-int f2(int arg1, char arg2)
-{
-	a1(arg1);
-	a2(arg1, arg2);
-	a3();
-	while(True){
-	    break;
-	}
-}
-'''
-
-    tokens, global_recorder = collect_antlr_parser(s)
+    main()
     # print(len(tokens))
     # print(len(global_recorder.total_records), len(global_recorder.state_records), len(global_recorder.rule_records))

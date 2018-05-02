@@ -21,9 +21,11 @@ def extract_info(parser):
     return token, state, toks
 
 
-def extrace_token_to_dict(token, symbolicNames):
+# def extrace_token_to_dict(token, symbolicNames):
+def extrace_token_to_dict(token):
     token_item = {'tokenIndex': token.tokenIndex, 'value': token.text, 'start': token.start,
-                  'stop': token.stop, 'label_id': token.type, 'label': symbolicNames[token.type],
+                  'stop': token.stop, 'label_id': token.type,
+                  # 'stop': token.stop, 'label_id': token.type, 'label': symbolicNames[token.type],
                   'line': token.line, 'column': token.column, 'channel': token.channel}
     return token_item
 
@@ -33,45 +35,42 @@ class TokenRecords:
 
     def __init__(self):
         self.total_records = []
-        self.state_records = []
-        self.rule_records = []
+        # self.state_records = []
+        # self.rule_records = []
 
-    def add_state_record(self, parser, token, before_state, atnState, label_id_list):
+    def add_state_record(self, parser, token, before_state, atnState, label_id_list, ctx):
         if label_id_list is None:
             label_id_list = []
-        label_list = [parser.symbolicNames[label_id] for label_id in label_id_list]
         if is_debug:
-            self.print_record(parser, token, before_state, atnState, label_id_list, label_list)
-        self.restore_info(parser, token, before_state, atnState, label_id_list, label_list, is_state=True)
+            self.print_record(parser, token, before_state, atnState, label_id_list)
+        self.restore_info(parser, token, before_state, atnState, label_id_list, ctx=ctx, is_state=True)
 
-    def add_rule_record(self, parser, token, state, label_id_list):
+    def add_rule_record(self, parser, token, state, label_id_list, ctx):
         if label_id_list is None:
             label_id_list = []
-        label_list = [parser.symbolicNames[label_id] for label_id in label_id_list]
         if is_debug:
-            self.print_record(parser, token, None, state, label_id_list, label_list)
-        self.restore_info(parser, token, -1, state, label_id_list, label_list, is_state=False)
+            self.print_record(parser, token, None, state, label_id_list)
+        self.restore_info(parser, token, -1, state, label_id_list, ctx=ctx, is_state=False)
 
-    def restore_info(self, parser, token, before_state, atnState, label_id_list, label_list, is_state=True):
-        token_item = extrace_token_to_dict(token, parser.symbolicNames)
+    def restore_info(self, parser, token, before_state, atnState, label_id_list, ctx, is_state=True):
+        token_item = extrace_token_to_dict(token)
 
-        labels = list(zip(label_id_list, label_list))
-
-        one = {'is_state': is_state, 'token': token_item, 'next_label': labels, 'before_state':
-            before_state, 'state': atnState}
+        one = {'is_state': is_state, 'token': token_item, 'next_label': label_id_list, 'before_state':
+            before_state, 'state': atnState, 'ctx': ctx}
         self.total_records += [one]
-        if is_state:
-            self.state_records += [one]
-        else:
-            self.rule_records += [one]
+        # if is_state:
+        #     self.state_records += [one]
+        # else:
+        #     self.rule_records += [one]
 
-    def print_record(self, parser, token, before_state, atnState, label_id_list, label_list):
+    def print_record(self, parser, token, before_state, atnState, label_id_list):
         print('token info index: {}, start: {}, stop: {}, value: {}, type: {}, label: {}, line: {}, '
               'column: {}'.format(token.tokenIndex, token.start, token.stop, token.text, token.type,
                                   parser.symbolicNames[token.type], token.line, token.column))
         print('original state: {}, state: {}'.format(before_state, atnState))
         if label_id_list is None:
             label_id_list = []
+        label_list = [parser.symbolicNames[label_id] for label_id in label_id_list]
         print('next label list: {}'.format(list(zip(label_id_list, label_list))))
 
 
@@ -81,6 +80,7 @@ def get_global_recorder():
 
 def set_global_recorder(recorder:TokenRecords):
     global global_recorder
+    del global_recorder
     global_recorder = recorder
 
 
@@ -95,7 +95,7 @@ def record_state_wrapper(f):
             print('in monitor all: ', before_state, atnState)
         res = f(*args, **kwargs)
         token, state, toks = extract_info(parser)
-        global_recorder.add_state_record(parser, token, before_state, state, toks)
+        global_recorder.add_state_record(parser, token, before_state, state, toks, parser._ctx)
         if is_debug:
             print('end monitor all: ', before_state, atnState)
         return res
@@ -138,7 +138,7 @@ def enter_all_fn(self, ctx):
     if is_debug:
         print('in enter: ', parser.state)
     token, state, toks = extract_info(parser)
-    global_recorder.add_rule_record(parser, token, state, toks)
+    global_recorder.add_rule_record(parser, token, state, toks, ctx)
     if is_debug:
         print('end enter: ', parser.state)
 
