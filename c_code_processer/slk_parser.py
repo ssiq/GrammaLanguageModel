@@ -1229,363 +1229,91 @@ class LabelVocabulary(object):
 
         self._label_to_id = {
         "TYPEDEF": 1,
-        "SEMI_": 2,
-        "EQUAL_": 3,
-        "COMMA_": 4,
-        "AUTO_": 5,
-        "REGISTER_": 6,
-        "STATIC_": 7,
-        "EXTERN_": 8,
-        "VOID_": 9,
-        "CHAR_": 10,
-        "SHORT_": 11,
-        "INT_": 12,
-        "LONG_": 13,
-        "FLOAT_": 14,
-        "DOUBLE_": 15,
-        "SIGNED_": 16,
-        "UNSIGNED_": 17,
-        "TYPEDEF_NAME_": 18,
-        public
-        static
-        final
-        short
-        CONST_ = 19;
-        public
-        static
-        final
-        short
-        VOLATILE_ = 20;
-        public
-        static
-        final
-        short
-        IDENTIFIER_ = 21;
-        public
-        static
-        final
-        short
-        LBRACE_ = 22;
-        public
-        static
-        final
-        short
-        RBRACE_ = 23;
-        public
-        static
-        final
-        short
-        STRUCT_ = 24;
-        public
-        static
-        final
-        short
-        UNION_ = 25;
-        public
-        static
-        final
-        short
-        COLON_ = 26;
-        public
-        static
-        final
-        short
-        ENUM_ = 27;
-        public
-        static
-        final
-        short
-        LPAREN_ = 28;
-        public
-        static
-        final
-        short
-        RPAREN_ = 29;
-        public
-        static
-        final
-        short
-        LBRACK_ = 30;
-        public
-        static
-        final
-        short
-        RBRACK_ = 31;
-        public
-        static
-        final
-        short
-        STAR_ = 32;
-        public
-        static
-        final
-        short
-        DOT_DOT_DOT_ = 33;
-        public
-        static
-        final
-        short
-        CASE_ = 34;
-        public
-        static
-        final
-        short
-        DEFAULT_ = 35;
-        public
-        static
-        final
-        short
-        IF_ = 36;
-        public
-        static
-        final
-        short
-        SWITCH_ = 37;
-        public
-        static
-        final
-        short
-        ELSE_ = 38;
-        public
-        static
-        final
-        short
-        WHILE_ = 39;
-        public
-        static
-        final
-        short
-        DO_ = 40;
-        public
-        static
-        final
-        short
-        FOR_ = 41;
-        public
-        static
-        final
-        short
-        GOTO_ = 42;
-        public
-        static
-        final
-        short
-        CONTINUE_ = 43;
-        public
-        static
-        final
-        short
-        BREAK_ = 44;
-        public
-        static
-        final
-        short
-        RETURN_ = 45;
-        public
-        static
-        final
-        short
-        STAR_EQUAL_ = 46;
-        public
-        static
-        final
-        short
-        SLASH_EQUAL_ = 47;
-        public
-        static
-        final
-        short
-        PERCENT_EQUAL_ = 48;
-        public
-        static
-        final
-        short
-        PLUS_EQUAL_ = 49;
-        public
-        static
-        final
-        short
-        MINUS_EQUAL_ = 50;
-        public
-        static
-        final
-        short
-        LESS_LESS_EQUAL_ = 51;
-        public
-        static
-        final
-        short
-        GREATER_GREATER_EQUAL_ = 52;
-        public
-        static
-        final
-        short
-        AND_EQUAL_ = 53;
-        public
-        static
-        final
-        short
-        CARET_EQUAL_ = 54;
-        public
-        static
-        final
-        short
-        OR_EQUAL_ = 55;
-        public
-        static
-        final
-        short
-        QMARK_ = 56;
-        public
-        static
-        final
-        short
-        OR_OR_ = 57;
-        public
-        static
-        final
-        short
-        AND_AND_ = 58;
-        public
-        static
-        final
-        short
-        OR_ = 59;
-        public
-        static
-        final
-        short
-        CARET_ = 60;
-        public
-        static
-        final
-        short
-        AND_ = 61;
-        public
-        static
-        final
-        short
-        EQUAL_EQUAL_ = 62;
-        public
-        static
-        final
-        short
-        NOT_EQUAL_ = 63;
-        public
-        static
-        final
-        short
-        LESS_ = 64;
-        public
-        static
-        final
-        short
-        GREATER_ = 65;
-        public
-        static
-        final
-        short
-        LESS_EQUAL_ = 66;
-        public
-        static
-        final
-        short
-        GREATER_EQUAL_ = 67;
-        public
-        static
-        final
-        short
-        LESS_LESS_ = 68;
-        public
-        static
-        final
-        short
-        GREATER_GREATER_ = 69;
-        public
-        static
-        final
-        short
-        PLUS_ = 70;
-        public
-        static
-        final
-        short
-        MINUS_ = 71;
-        public
-        static
-        final
-        short
-        SLASH_ = 72;
-        public
-        static
-        final
-        short
-        PERCENT_ = 73;
-        public
-        static
-        final
-        short
-        PLUS_PLUS_ = 74;
-        public
-        static
-        final
-        short
-        MINUS_MINUS_ = 75;
-        public
-        static
-        final
-        short
-        SIZEOF_ = 76;
-        public
-        static
-        final
-        short
-        TILDE_ = 77;
-        public
-        static
-        final
-        short
-        NOT_ = 78;
-        public
-        static
-        final
-        short
-        DOT_ = 79;
-        public
-        static
-        final
-        short
-        MINUS_GREATER_ = 80;
-        public
-        static
-        final
-        short
-        STRING_ = 81;
-        public
-        static
-        final
-        short
-        INTEGER_CONSTANT_ = 82;
-        public
-        static
-        final
-        short
-        CHARACTER_CONSTANT_ = 83;
-        public
-        static
-        final
-        short
-        FLOATING_CONSTANT_ = 84;
-        public
-        static
-        final
-        short
-        ENUMERATION_CONSTANT_ = 85;
-        public
-        static
-        final
-        short
-        END_OF_SLK_INPUT_ = 86;
+        "SEMI": 2,
+        "EQUALS": 3,
+        "COMMA": 4,
+        "AUTO": 5,
+        "REGISTER": 6,
+        "STATIC": 7,
+        "EXTERN": 8,
+        "VOID": 9,
+        "CHAR": 10,
+        "SHORT": 11,
+        "INT": 12,
+        "LONG": 13,
+        "FLOAT": 14,
+        "DOUBLE": 15,
+        "SIGNED": 16,
+        "UNSIGNED": 17,
+        "TYPEID": 18,
+        "CONST": 19,
+        "VOLATILE": 20,
+        "ID": 21,
+        "LBRACE": 22,
+        "RBRACE": 23,
+        "STRUCT": 24,
+        "UNION": 25,
+        "COLON": 26,
+        "ENUM": 27,
+        "LPAREN": 28,
+        "RPAREN": 29,
+        "LBRACK": 30,
+        "RBRACK": 31,
+        "TIMES": 32,
+        "ELLIPSIS": 33,
+        "CASE": 34,
+        "DEFAULT": 35,
+        "IF": 36,
+        "SWITCH": 37,
+        "ELSE": 38,
+        "WHILE": 39,
+        "DO": 40,
+        "FOR": 41,
+        "GOTO": 42,
+        "CONTINUE": 43,
+        "BREAK": 44,
+        "RETURN": 45,
+        "TIMESEQUAL": 46,
+        "DIVEQUAL": 47,
+        "MODEQUAL": 48,
+        "PLUSEQUAL": 49,
+        "MINUSEQUAL": 50,
+        "LSHIFTEQUAL": 51,
+        "RSHIFTEQUAL": 52,
+        "ANDEQUAL": 53,
+        "XOREQUAL": 54,
+        "OREQUA": 55,
+        "CONDOP": 56,
+        "LOR": 57,
+        "LAND": 58,
+        "OR": 59,
+        "XOR": 60,
+        "AND": 61,
+        "EQ": 62,
+        "NE": 63,
+        "LT": 64,
+        "GT": 65,
+        "LE": 66,
+        "GE": 67,
+        "LSHIFT": 68,
+        "RSHIFT": 69,
+        "PLUS": 70,
+        "MINUS": 71,
+        "DIVIDE": 72,
+        "MOD": 73,
+        "PLUSPLUS": 74,
+        "MINUSMINUS": 75,
+        "SIZEOF": 76,
+        "NOT": 77,
+        "LNOT": 78,
+        "PERIOD": 79,
+        "ARROW": 80,
+        "STRING_LITERAL": 81,
+        "INTEGER_CONSTANT": 82, # There atr many constant type in the lexier which should transform
+        "CHARACTER_CONSTANT": 83,
+        "FLOATING_CONSTANT": 84,
+        "ENUMERATION_CONSTANT": 85,
+        "END_OF_SLK_INPUT": 86,
         }
 
     def get_symbol_name(self, symbol_index):
