@@ -1,7 +1,7 @@
 import abc
 
 from c_code_processer.buffered_clex import BufferedCLex
-from c_code_processer.code_util import LeafParseNode, ProductionNode, Production
+from c_code_processer.code_util import LeafParseNode, ProductionNode, Production, parse_tree_to_top_down_process
 from common import util
 import collections
 
@@ -1405,11 +1405,13 @@ class LexTokens(metaclass=abc.ABCMeta):
 class InputLexTokens(LexTokens):
     def __init__(self,
                  tokens,
-                 label_vocabulary: LabelVocabulary):
+                 label_vocabulary: LabelVocabulary,
+                 slk_constants: SLKConstants):
         self._index = 0
         self._last_token = None
         self._typedef_lookup_fn = None
         self._label_vocabulary = label_vocabulary
+        self._slk_constants = slk_constants
         self._tokens = [t[0] for t in tokens]
 
     @property
@@ -1426,9 +1428,12 @@ class InputLexTokens(LexTokens):
         return self._label_vocabulary.get_label_id(res.type)
 
     def get(self):
+        if self._index >= len(self._tokens):
+            return self._slk_constants.END_OF_SLK_INPUT_
         res = self._tokens[self._index]
         self._index += 1
         self._last_token = res.value
+        print("The next token is:{}".format(res.value))
         return self._typename_to_id(res)
 
     def peek(self, level):
@@ -1495,6 +1500,12 @@ class CAction(Action):
                 node[i] = LeafParseNode(self._label_vocabulary.get_symbol_name(right), None, right)
                 node[i].parent_node = node
                 self._terminal_stack.append(node[i])
+            if self._slk_constants.is_action(right):
+                node[i] = LeafParseNode(self._label_vocabulary.get_symbol_name(right),
+                                        self._label_vocabulary.get_symbol_name(right),
+                                        right)
+                node[i].parent_node = node
+
 
     def match_terminal_value(self, token, value):
         node = self._terminal_stack.pop()
@@ -1529,8 +1540,18 @@ class CAction(Action):
 
 
 class SLKParser(object):
-    def __init__(self, skl_constants: SLKConstants):
+    def __init__(self,
+                 skl_constants: SLKConstants,
+                 label_vocabulary: LabelVocabulary):
         self._sklconstants = skl_constants
+        self._label_vocabulary = label_vocabulary
+
+    def _report_str(self, symbol, token):
+        return "Now symbol is {} and now token is {}".format(self._label_vocabulary.get_symbol_name(symbol),
+                                                             self._label_vocabulary.get_symbol_name(token))
+
+    def _report_error(self, symbol, token):
+        raise ValueError(self._report_str(symbol, token))
 
     def parse(self,
               tokens: LexTokens,
@@ -1544,7 +1565,7 @@ class SLKParser(object):
         START_CONFLICT = self._sklconstants.START_CONFLICT
         while stack[-1] != 0:
             symbol = stack.pop()
-            print("now symbol:{}".format(symbol))
+            print(self._report_str(symbol, token))
 
             if self._sklconstants.is_action(symbol):
                 action.execute(symbol - (self._sklconstants.START_ACTION - 1))
@@ -1572,16 +1593,16 @@ class SLKParser(object):
                             stack.append(self._sklconstants.production_table[index])
                             index -= 1
                     else:
-                        raise ValueError
+                        self._report_error(symbol, token)
                 else:
-                    raise ValueError
+                    self._report_error(symbol, token)
             elif self._sklconstants.is_terminal(symbol):
                 if symbol == token:
                     action.match_terminal_value(token, tokens.last_token_value())
                     token = tokens.get()
                     new_token = token
                 else:
-                    raise ValueError
+                    self._report_error(symbol, token)
             else:
                 raise ValueError("The symbol should not in the grammar")
         if token != self._sklconstants.END_OF_SLK_INPUT_:
@@ -1594,13 +1615,13 @@ if __name__ == '__main__':
      if (a>b)return a; 
      else return b;} 
     int main(void) { 
-     int n,a,b,c; 
-     scanf( "%d %d %d %d" ,&n,&a,&b,&c); 
+     int n,a,b,c, i; 
      int da[n+1]; 
-     for(int i=0;i<=n;i++){ 
+     scanf( "%d %d %d %d" ,&n,&a,&b,&c); 
+     for(i=0;i<=n;i++){ 
      da[i]=0; 
      } 
-     for(int i=1;i<=n;i++){ 
+     for(i=1;i<=n;i++){ 
      int x=-1,y=-1,z=-1; 
      if(i>a){ 
      x=da[i-a]; 
@@ -1624,9 +1645,10 @@ if __name__ == '__main__':
     slk_constants = SLKConstants()
     label_vocabulary = LabelVocabulary(slk_constants)
     clex.input(code)
-    tokens = InputLexTokens(clex.tokens_buffer, label_vocabulary)
+    tokens = InputLexTokens(clex.tokens_buffer, label_vocabulary, slk_constants)
     action = CAction(slk_constants, label_vocabulary, tokens, True)
     tokens.typedef_lookup_fn = action.type_lookup_fn
-    slk_parser = SLKParser(slk_constants)
+    slk_parser = SLKParser(slk_constants, label_vocabulary)
     slk_parser.parse(tokens, action)
     tree = action.parse_tree
+    parse_tree_to_top_down_process(tree)
