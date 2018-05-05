@@ -1,7 +1,7 @@
 import multiprocessing
 
-from c_code_processer.antlr_util import MonitorParser, create_register_enter_listener_parser, \
-    TokenRecords, extrace_token_to_dict, set_global_recorder, get_global_recorder, ExceptionErrorListener
+from c_code_processer.antlr_util import TokenRecords, extrace_token_to_dict, set_global_recorder, get_global_recorder, \
+    create_monitor_parser
 from c_code_processer.c_antlr.CLexer import CLexer
 from c_code_processer.code_util import replace_include_with_blank, replace_define_with_blank
 
@@ -10,31 +10,54 @@ import sys
 
 
 max_token_count = 500
+count = 0
+failed = 0
+
+
+def init_parser_and_token(code):
+    _, _, stream, parser = create_monitor_parser(code)
+    tokens = stream.tokens
+    if len(tokens) >= max_token_count:
+        return None, None
+    # tokens = [extrace_token_to_dict(tok) for tok in tokens]
+    return parser, tokens
+
 
 def collect_antlr_parser(code):
     global_recorder = TokenRecords()
     set_global_recorder(global_recorder)
 
-    code_stream = InputStream(code)
-    lexer = CLexer(code_stream)
-    lexer.addErrorListener(ExceptionErrorListener())
-    stream = CommonTokenStream(lexer)
-    parser = MonitorParser(stream)
-    stream.fill()
-    tokens = stream.tokens
-    if len(tokens) >= max_token_count:
+    parser, tokens = init_parser_and_token(code)
+    if tokens is None:
         return None, None
+    global_recorder.tokens = tokens
+    parser.compilationUnit()
     tokens = [extrace_token_to_dict(tok) for tok in tokens]
 
-    parser = create_register_enter_listener_parser(parser)
-
-    parser.compilationUnit()
-    del code_stream, lexer, stream, parser
+    # del code_stream, lexer, stream, parser
     global_recorder = get_global_recorder()
     return tokens, global_recorder.total_records
 
-count = 0
-failed = 0
+
+def collect_dfa_do_parse(code, total):
+    if 'include' in code:
+        code = replace_include_with_blank(code)
+    if 'define' in code:
+        code = replace_define_with_blank(code)
+    global count, failed
+    count += 1
+    print('in one code {}/{}/{}'.format(count, failed, total))
+    try:
+        parser, tokens = init_parser_and_token(code)
+        parser.compilationUnit()
+    except Exception as e:
+        print('failed occured!!!')
+        print(e)
+        failed += 1
+        tokens = None
+    return tokens
+
+
 def collect_one_records(one, total):
     current = multiprocessing.current_process()
     global count, failed
@@ -50,6 +73,7 @@ def collect_one_records(one, total):
     except Exception as e:
         print('failed occurs')
         print(e)
+        print(code)
         failed += 1
         tokens = None
         records = None
@@ -67,141 +91,37 @@ def collect_one_records(one, total):
 
 
 def main():
-    s = '''
-        int f(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    }
-
-    int f2(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    	while(True){
-    	    break;
-    	}
-    }
-    int f(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    }
-
-    int f2(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    	while(True){
-    	    break;
-    	}
-    }
-    int f(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    }
-
-    int f2(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    	while(True){
-    	    break;
-    	}
-    }
-    int f(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    }
-
-    int f2(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    	while(True){
-    	    break;
-    	}
-    }
-    int f(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    }
-
-    int f2(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    	while(True){
-    	    break;
-    	}
-    }
-    int f(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    }
-
-    int f2(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    	while(True){
-    	    break;
-    	}
-    }
-    int f(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    }
-
-    int f2(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    	while(True){
-    	    break;
-    	}
-    }
-    int f(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    }
-
-    int f2(int arg1, char arg2)
-    {
-    	a1(arg1);
-    	a2(arg1, arg2);
-    	a3();
-    	while(True){
-    	    break;
-    	}
-    }
+    s = r'''
+int main(void)
+{
+ int i,j,n;
+ double *a,s=0; 
+ scanf( "%d" ,&n);
+ a=malloc(n*n*sizeof(double));
+ for(i=0;i<n;i++)
+ {
+ for(j=0;j<n;j++)
+ {
+ scanf( "%lg" ,&a[i*n+j]);
+ }
+ }
+ for(i=0;i<n;i++)
+ {
+ s+=a[i*n+i];
+ s+=a[i*n+n-1-i];
+ s+=a[n*(n-1)/2+i];
+ s+=a[n*i+(n-1)/2];
+ }
+ printf( "%lg" ,s-3*a[n*(n-1)/2+(n-1)/2]);
+ return 0; 
+}
     '''
     # for i in range(100):
-    #     tokens, global_recorder = collect_antlr_parser(s)
-    tokens, global_recorder = collect_antlr_parser(s)
-    print(len(tokens))
-    print(len(global_recorder))
+    #     tokens, total = collect_antlr_parser(s)
+    tokens, total = collect_antlr_parser(s)
+    pass
+    # print(len(tokens))
+    # print(len(total))
 
 if __name__ == '__main__':
 

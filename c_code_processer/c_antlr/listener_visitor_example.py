@@ -1,13 +1,10 @@
+import os
+import sys
+
 from antlr4 import *
-from antlr4.atn.ATNState import ATNState
 from antlr4.dfa.DFAState import DFAState
 
-from c_code_processer.antlr_util import MonitorParser, create_register_enter_listener_parser
-from c_code_processer.c_antlr.CLexer import CLexer
-from c_code_processer.c_antlr.CVisitor import CVisitor
-
-
-
+from c_code_processer.antlr_util import create_monitor_parser, global_recorder
 
 # class TestVisitor(CVisitor):
 #     def visitJumpStatement(self, ctx):
@@ -35,6 +32,10 @@ from c_code_processer.c_antlr.CVisitor import CVisitor
             # print(token.tokenIndex)
             # print(symbolicNames[token.type])
         # return self.visitChildren(ctx)
+from c_code_processer.c_antlr.CLexer import CLexer
+from c_code_processer.c_antlr.CParser import CParser
+from common.constants import CACHE_DATA_PATH
+from common.util import disk_cache
 
 
 def get_s0(dfa, parser_atn_simulator, outerContext):
@@ -75,7 +76,7 @@ def get_s0(dfa, parser_atn_simulator, outerContext):
 
 
 if __name__ == '__main__':
-
+    sys.setrecursionlimit(10000)
     s = '''int f(int arg1, char arg2)
 {
 	a1(arg1);
@@ -94,38 +95,98 @@ int f2(int arg1, char arg2)
 }
 '''
 
-    s_stream = InputStream(s)
-    lexer = CLexer(s_stream)
-    stream = CommonTokenStream(lexer)
+    s2 = r'''int main(void)
+{
+ int i,j,n;
+ double *a,s=0; 
+ scanf( "%d" ,&n);
+ a=malloc(n*n*sizeof(double));
+ for(i=0;i<n;i++)
+ {
+ for(j=0;j<n;j++)
+ {
+ scanf( "%lg" ,&a[i*n+j]);
+ }
+ }
+ for(i=0;i<n;i++)
+ {
+ s+=a[i*n+i];
+ s+=a[i*n+n-1-i];
+ s+=a[n*(n-1)/2+i];
+ s+=a[n*i+(n-1)/2];
+ }
+ printf( "%lg" ,s-3*a[n*(n-1)/2+(n-1)/2]);
+ return 0; 
+}'''
 
-    parser = MonitorParser(stream)
-    parser = create_register_enter_listener_parser(parser)
-    print('decisionToState: ', len(parser.atn.decisionToState))
-    dec = []
-    for state in parser.atn.decisionToState:
-        if state in dec:
-            print('multiple state: ', str(state))
-        dec += [str(state)]
-        print(str(state))
+    code = s2
+
+    # code_stream = InputStream(code)
+    # lexer = CLexer(code_stream)
+    # stream = CommonTokenStream(lexer)
+    # parser = CParser(stream)
+
+    _, _, stream, parser = create_monitor_parser(code)
+    global_recorder.tokens = stream.tokens
+    # print('decisionToState: ', len(parser.atn.decisionToState))
+    # dec = []
+    # for i, state in enumerate(parser.atn.decisionToState):
+    #     if state in dec:
+    #         print('multiple state: ', str(state))
+    #     dec += [str(state)]
+    #     print(i, str(state))
+
+    # parser2 = MonitorParser(stream)
+    # parser2 = create_register_enter_listener_parser(parser2)
+    # tree2 = parser2.compilationUnit()
+    # print(parser._interp, parser2._interp)
+    # for dfa1, dfa2 in zip(parser.decisionsToDFA, parser2.decisionsToDFA):
+    #     print('DFA compare: ', id(dfa1), id(dfa2), id(dfa1) == id(dfa2))
+    #     if id(dfa1) != id(dfa2):
+    #         print('DFA different!!!')
+
+
+
+    # @disk_cache(basename='read_antlr_parse_records', directory=os.path.join(CACHE_DATA_PATH))
+    # def get_dfa():
+    #     print('in get dfa')
+    #     return parser.decisionsToDFA
+
+
+    # res = get_dfa()
+    # parser.decisionsToDFA = res
 
     tree = parser.compilationUnit()
-    from c_code_processer.antlr_util import global_recorder
-    for record in global_recorder.total_records:
-        state_str = str(record['state'])
-        if state_str in dec:
-            decision = dec.index(state_str)
-            print('decision: ', decision)
-            dfa = parser.decisionsToDFA[decision]
-            # print(parser.decisionsToDFA[decision])
-            s0 = get_s0(dfa, parser._interp, record['ctx'])
-            if s0.edges is not None:
-                print(record['token'])
-                for i in record['next_label']:
-                    print(i)
-                print(len(s0.edges))
-                print()
-            else:
-                print('edges is None')
+
+
+    @disk_cache(basename='test', directory=CACHE_DATA_PATH)
+    def test():
+        return parser._predicates
+
+    pre = parser._predicates
+
+    te = test()
+    record = global_recorder
+    pass
+    # from c_code_processer.antlr_util import global_recorder
+    # for record in global_recorder.total_records:
+    #     state_str = str(record['state'])
+    #     if state_str in dec:
+    #         decision = dec.index(state_str)
+    #         print('state: {}, decision: {}'.format(state_str, decision))
+    #         print('decision: ', decision)
+    #         dfa = parser.decisionsToDFA[decision]
+    #         # print(parser.decisionsToDFA[decision])
+    #         s0 = get_s0(dfa, parser._interp, record['ctx'])
+    #         if s0.edges is not None:
+    #             print(record['token'])
+    #             for i in record['next_label']:
+    #                 print(i)
+    #             print(len(s0.edges))
+    #             print()
+    #         else:
+    #             print('edges is None')
+
     # print('final: ')
     # for dfa in parser.decisionsToDFA:
     #     try:
