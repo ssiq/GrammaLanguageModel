@@ -327,11 +327,15 @@ class ParseNode(metaclass=abc.ABCMeta):
 
 
 class ProductionNode(ParseNode):
-    def __init__(self, production: Production, ast_node):
+    def __init__(self, production: typing.Union[Production, None], ast_node):
+        """
+        :param production: if production is None, this attribute should be filled latter
+        :param ast_node:
+        """
         super().__init__()
         self._ast_node = ast_node
-        self._production = production
-        self._right_map = dict(zip(production.right, production.right_id))
+        if production is not None:
+            self.production = production
         self._children_nodes = {}
 
     def is_leaf(self):
@@ -340,6 +344,11 @@ class ProductionNode(ParseNode):
     @property
     def production(self):
         return self._production
+
+    @production.setter
+    def production(self, production_):
+        self._production = production_
+        self._right_map = dict(zip(production_.right, production_.right_id))
 
     @property
     def type_id(self):
@@ -401,6 +410,10 @@ class LeafParseNode(ParseNode):
     @property
     def value(self):
         return self._value
+
+    @value.setter
+    def value(self, v):
+        self._value = v
 
     def __repr__(self):
         return "{}:{}".format(self.type_string, self.value)

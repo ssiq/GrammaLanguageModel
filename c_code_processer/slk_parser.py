@@ -1,5 +1,10 @@
 import abc
 
+from c_code_processer.buffered_clex import BufferedCLex
+from c_code_processer.code_util import LeafParseNode, ProductionNode, Production
+from common import util
+import collections
+
 
 class SLKConstants(object):
     def __init__(self):
@@ -668,13 +673,15 @@ class SLKConstants(object):
             symbol_type = self.TERMINAL_SYMBOL
         return symbol_type
 
-    def __setattr__(self, name, value):
-        raise ValueError
+    def get_production_array(self, production_id):
+        index = self.production_row[production_id]
+        array_length = self.production_table[index]
+        return self.production_table[index+1: index+1+array_length]
 
 
 class LabelVocabulary(object):
-    def __init__(self, skl_constants):
-        self._skl_constants = skl_constants
+    def __init__(self, slk_constants: SLKConstants):
+        self._slk_constants = slk_constants
         self._terminal_names = ["0"
             , "typedef"
             , ";"
@@ -1228,105 +1235,149 @@ class LabelVocabulary(object):
             , ",_assignment_expression_2_* -->"]
 
         self._label_to_id = {
-        "TYPEDEF": 1,
-        "SEMI": 2,
-        "EQUALS": 3,
-        "COMMA": 4,
-        "AUTO": 5,
-        "REGISTER": 6,
-        "STATIC": 7,
-        "EXTERN": 8,
-        "VOID": 9,
-        "CHAR": 10,
-        "SHORT": 11,
-        "INT": 12,
-        "LONG": 13,
-        "FLOAT": 14,
-        "DOUBLE": 15,
-        "SIGNED": 16,
-        "UNSIGNED": 17,
-        "TYPEID": 18,
-        "CONST": 19,
-        "VOLATILE": 20,
-        "ID": 21,
-        "LBRACE": 22,
-        "RBRACE": 23,
-        "STRUCT": 24,
-        "UNION": 25,
-        "COLON": 26,
-        "ENUM": 27,
-        "LPAREN": 28,
-        "RPAREN": 29,
-        "LBRACK": 30,
-        "RBRACK": 31,
-        "TIMES": 32,
-        "ELLIPSIS": 33,
-        "CASE": 34,
-        "DEFAULT": 35,
-        "IF": 36,
-        "SWITCH": 37,
-        "ELSE": 38,
-        "WHILE": 39,
-        "DO": 40,
-        "FOR": 41,
-        "GOTO": 42,
-        "CONTINUE": 43,
-        "BREAK": 44,
-        "RETURN": 45,
-        "TIMESEQUAL": 46,
-        "DIVEQUAL": 47,
-        "MODEQUAL": 48,
-        "PLUSEQUAL": 49,
-        "MINUSEQUAL": 50,
-        "LSHIFTEQUAL": 51,
-        "RSHIFTEQUAL": 52,
-        "ANDEQUAL": 53,
-        "XOREQUAL": 54,
-        "OREQUA": 55,
-        "CONDOP": 56,
-        "LOR": 57,
-        "LAND": 58,
-        "OR": 59,
-        "XOR": 60,
-        "AND": 61,
-        "EQ": 62,
-        "NE": 63,
-        "LT": 64,
-        "GT": 65,
-        "LE": 66,
-        "GE": 67,
-        "LSHIFT": 68,
-        "RSHIFT": 69,
-        "PLUS": 70,
-        "MINUS": 71,
-        "DIVIDE": 72,
-        "MOD": 73,
-        "PLUSPLUS": 74,
-        "MINUSMINUS": 75,
-        "SIZEOF": 76,
-        "NOT": 77,
-        "LNOT": 78,
-        "PERIOD": 79,
-        "ARROW": 80,
-        "STRING_LITERAL": 81,
-        "INTEGER_CONSTANT": 82, # There atr many constant type in the lexier which should transform
-        "CHARACTER_CONSTANT": 83,
-        "FLOATING_CONSTANT": 84,
-        "ENUMERATION_CONSTANT": 85,
-        "END_OF_SLK_INPUT": 86,
+            "TYPEDEF": 1,
+            "SEMI": 2,
+            "EQUALS": 3,
+            "COMMA": 4,
+            "AUTO": 5,
+            "REGISTER": 6,
+            "STATIC": 7,
+            "EXTERN": 8,
+            "VOID": 9,
+            "CHAR": 10,
+            "SHORT": 11,
+            "INT": 12,
+            "LONG": 13,
+            "FLOAT": 14,
+            "DOUBLE": 15,
+            "SIGNED": 16,
+            "UNSIGNED": 17,
+            "TYPEID": 18,
+            "CONST": 19,
+            "VOLATILE": 20,
+            "ID": 21,
+            "LBRACE": 22,
+            "RBRACE": 23,
+            "STRUCT": 24,
+            "UNION": 25,
+            "COLON": 26,
+            "ENUM": 27,
+            "LPAREN": 28,
+            "RPAREN": 29,
+            "LBRACKET": 30,
+            "RBRACKET": 31,
+            "TIMES": 32,
+            "ELLIPSIS": 33,
+            "CASE": 34,
+            "DEFAULT": 35,
+            "IF": 36,
+            "SWITCH": 37,
+            "ELSE": 38,
+            "WHILE": 39,
+            "DO": 40,
+            "FOR": 41,
+            "GOTO": 42,
+            "CONTINUE": 43,
+            "BREAK": 44,
+            "RETURN": 45,
+            "TIMESEQUAL": 46,
+            "DIVEQUAL": 47,
+            "MODEQUAL": 48,
+            "PLUSEQUAL": 49,
+            "MINUSEQUAL": 50,
+            "LSHIFTEQUAL": 51,
+            "RSHIFTEQUAL": 52,
+            "ANDEQUAL": 53,
+            "XOREQUAL": 54,
+            "OREQUA": 55,
+            "CONDOP": 56,
+            "LOR": 57,
+            "LAND": 58,
+            "OR": 59,
+            "XOR": 60,
+            "AND": 61,
+            "EQ": 62,
+            "NE": 63,
+            "LT": 64,
+            "GT": 65,
+            "LE": 66,
+            "GE": 67,
+            "LSHIFT": 68,
+            "RSHIFT": 69,
+            "PLUS": 70,
+            "MINUS": 71,
+            "DIVIDE": 72,
+            "MOD": 73,
+            "PLUSPLUS": 74,
+            "MINUSMINUS": 75,
+            "SIZEOF": 76,
+            "NOT": 77,
+            "LNOT": 78,
+            "PERIOD": 79,
+            "ARROW": 80,
+            "STRING_LITERAL": 81,
+            "INTEGER_CONSTANT": 82,  # There atr many constant type in the lexier which should transform
+            "CHARACTER_CONSTANT": 83,
+            "FLOATING_CONSTANT": 84,
+            "ENUMERATION_CONSTANT": 85,
+            "END_OF_SLK_INPUT": 86,
         }
+        self._id_to_symbol_name_dict = self._create_symbol_name_dict()
+        self._symbol_name_to_id_dict = util.reverse_dict(self._id_to_symbol_name_dict)
+        self._production_list = self._create_production_list()
 
-    def get_symbol_name(self, symbol_index):
-        if self._skl_constants.START_ACTION <= symbol_index < self._skl_constants.END_ACTION:
-            return self._action_name[symbol_index - (self._skl_constants.START_ACTION - 1)]
-        elif symbol_index >= self._skl_constants.START_SYMBOL:
-            return self._non_terminal_name[symbol_index - (self._skl_constants.START_SYMBOL - 1)]
+    def _create_symbol_name_dict(self):
+        terminal_dict = {k: self._get_symbol_name(k) for k in range(1, self._slk_constants.START_SYMBOL)}
+        non_terminal_dict = {k: self._get_symbol_name(k) for k in range(self._slk_constants.START_SYMBOL, self._slk_constants.START_ACTION)}
+        action_dict = {k: self._get_symbol_name(k) for k in range(self._slk_constants.START_ACTION, self._slk_constants.END_ACTION)}
+        return {**terminal_dict, **non_terminal_dict, **action_dict}
+
+    def _get_symbol_name(self, symbol_index):
+        if self._slk_constants.START_ACTION <= symbol_index < self._slk_constants.END_ACTION:
+            return self._action_name[symbol_index - (self._slk_constants.START_ACTION - 1)]
+        elif symbol_index >= self._slk_constants.START_SYMBOL:
+            return self._non_terminal_name[symbol_index - (self._slk_constants.START_SYMBOL - 1)]
         elif symbol_index > 0:
             return self._terminal_names[symbol_index]
         raise ValueError("The symbol index {} is out of range".format(symbol_index))
 
+    def get_symbol_name(self, symbol_index):
+        if symbol_index in self._id_to_symbol_name_dict:
+            return self._id_to_symbol_name_dict[symbol_index]
+        else:
+            raise ValueError("The symbol index {} is out of range".format(symbol_index))
+
+    def get_symbol_index(self, symbol_name):
+        return self._symbol_name_to_id_dict[symbol_name]
+
     def get_production_name(self, production_number):
         return self._production_name[production_number]
+
+    def _create_production_list(self):
+        res = []
+        for index in range(1, len(self._production_name)):
+            production_array = self._slk_constants.get_production_array(index)
+            lhs_name = self.get_symbol_name(production_array[0])
+            rhs_name = [self.get_symbol_name(t) for t in production_array[1:]]
+            res.append(Production(lhs_name, rhs_name, self._symbol_name_to_id_dict))
+        return res
+
+    def get_production(self, production_id):
+        return self._production_list[production_id-1]
+
+    def get_label_id(self, label):
+        if label in self._label_to_id:
+            return self._label_to_id[label]
+        elif label in { 'INT_CONST_DEC', 'INT_CONST_OCT', 'INT_CONST_HEX', 'INT_CONST_BIN'}:
+            return self._label_to_id["INTEGER_CONSTANT"]
+        elif label in {'FLOAT_CONST', 'HEX_FLOAT_CONST'}:
+            return self._label_to_id["FLOATING_CONSTANT"]
+        elif label in {'CHAR_CONST', 'WCHAR_CONST'}:
+            return self._label_to_id["CHARACTER_CONSTANT"]
+        elif label in {'STRING_LITERAL', 'WSTRING_LITERAL'}:
+            return self._label_to_id["STRING_LITERAL"]
+        else:
+            raise ValueError("no such label:{}".format(label))
 
 
 class LexTokens(metaclass=abc.ABCMeta):
@@ -1344,14 +1395,147 @@ class LexTokens(metaclass=abc.ABCMeta):
         :return: the lookhead tokens
         """
 
+    @abc.abstractmethod
+    def last_token_value(self):
+        """
+        :return: The last token value by the parser
+        """
+
+
+class InputLexTokens(LexTokens):
+    def __init__(self,
+                 tokens,
+                 label_vocabulary: LabelVocabulary):
+        self._index = 0
+        self._last_token = None
+        self._typedef_lookup_fn = None
+        self._label_vocabulary = label_vocabulary
+        self._tokens = [t[0] for t in tokens]
+
+    @property
+    def typedef_lookup_fn(self):
+        return self._typedef_lookup_fn
+
+    @typedef_lookup_fn.setter
+    def typedef_lookup_fn(self, f):
+        self._typedef_lookup_fn = f
+
+    def _typename_to_id(self, res):
+        if res.type == "ID" and self.typedef_lookup_fn(res.value):
+            res.type = 'TYPEID'
+        return self._label_vocabulary.get_label_id(res.type)
+
+    def get(self):
+        res = self._tokens[self._index]
+        self._index += 1
+        self._last_token = res.value
+        return self._typename_to_id(res)
+
+    def peek(self, level):
+        res = self._tokens[self._index+level-1]
+        return self._typename_to_id(res)
+
+    def last_token_value(self):
+        return self._last_token
+
+
+class Action(metaclass=abc.ABCMeta):
+
+    @abc.abstractmethod
+    def execute(self, action_id):
+        """
+        :param action_id: The action id
+        :return: None
+        """
+
+    @abc.abstractmethod
+    def predict(self, production_number):
+        """
+        :param production_number: The production id
+        :return:
+        """
+
+
+class CAction(Action):
+    def __init__(self,
+                 slk_constants:SLKConstants,
+                 label_vocabulary: LabelVocabulary,
+                 lex: InputLexTokens,
+                 verbose=False):
+        self._slk_constants = slk_constants
+        self._label_vocabulary = label_vocabulary
+        self._verbose = verbose
+        self._lex = lex
+        self._root_node = ProductionNode(None, None)
+        self._tree_stack = [(slk_constants.START_SYMBOL, self._root_node)]
+        self._terminal_stack = []
+        self._scope = []
+        self._execute_route = {
+            1: self._finish_parse,
+            2: self._set_typedef_name,
+            3: self._new_scope,
+            4: self._release_scope,
+        }
+
+    def predict(self, production_number):
+        production = self._label_vocabulary.get_production(production_number)
+        if self._verbose:
+            print(str(production))
+
+        top, node = self._tree_stack.pop()
+        assert top == production.left_id, "The top is {}, the right id of production is:{}".format(top,
+                                                                                                    production.left_id)
+        node.production = production
+        for i, right in reversed(list(enumerate(production.right_id))):
+            if self._slk_constants.is_non_terminal(right):
+                node[i] = ProductionNode(None, None)
+                node[i].parent_node = node
+                self._tree_stack.append((right, node[i]))
+            if self._slk_constants.is_terminal(right):
+                node[i] = LeafParseNode(self._label_vocabulary.get_symbol_name(right), None, right)
+                node[i].parent_node = node
+                self._terminal_stack.append(node[i])
+
+    def match_terminal_value(self, token, value):
+        node = self._terminal_stack.pop()
+        assert node.type_id == token, "expect_type_id:{}, true type:{}".format(node.type_id, token)
+        node.value = value
+
+    def type_lookup_fn(self, v):
+        for scope in reversed(self._scope):
+            if v in scope["typedef_name"]:
+                return True
+
+        return False
+
+    def _finish_parse(self):
+        pass
+
+    def _set_typedef_name(self):
+        self._scope[-1]["typedef_name"].add(self._lex.last_token_value())
+
+    def _new_scope(self):
+        self._scope.append({"typedef_name": {}})
+
+    def _release_scope(self):
+        self._scope.pop()
+
+    def execute(self, action_id):
+        self._execute_route[action_id]()
+
+    @property
+    def parse_tree(self):
+        return self._root_node
+
 
 class SLKParser(object):
     def __init__(self, skl_constants: SLKConstants):
         self._sklconstants = skl_constants
 
     def parse(self,
-              tokens: LexTokens):
-        stack = []
+              tokens: LexTokens,
+              action: CAction):
+        stack = list()
         stack.append(0)
         start_symbol = self._sklconstants.START_SYMBOL
         stack.append(start_symbol)
@@ -1360,8 +1544,10 @@ class SLKParser(object):
         START_CONFLICT = self._sklconstants.START_CONFLICT
         while stack[-1] != 0:
             symbol = stack.pop()
+            print("now symbol:{}".format(symbol))
+
             if self._sklconstants.is_action(symbol):
-                pass
+                action.execute(symbol - (self._sklconstants.START_ACTION - 1))
             elif self._sklconstants.is_non_terminal(symbol):
                 entry = 0
                 level = 1
@@ -1380,6 +1566,7 @@ class SLKParser(object):
                     index += 1
                     lhs = self._sklconstants.production_table[index]
                     if lhs == symbol:
+                        action.predict(entry)
                         index += production_length
                         for _ in range(production_length):
                             stack.append(self._sklconstants.production_table[index])
@@ -1390,6 +1577,7 @@ class SLKParser(object):
                     raise ValueError
             elif self._sklconstants.is_terminal(symbol):
                 if symbol == token:
+                    action.match_terminal_value(token, tokens.last_token_value())
                     token = tokens.get()
                     new_token = token
                 else:
@@ -1398,3 +1586,47 @@ class SLKParser(object):
                 raise ValueError("The symbol should not in the grammar")
         if token != self._sklconstants.END_OF_SLK_INPUT_:
             raise ValueError("The input too short")
+
+
+if __name__ == '__main__':
+    code = ''' 
+     int max(int a,int b){ 
+     if (a>b)return a; 
+     else return b;} 
+    int main(void) { 
+     int n,a,b,c; 
+     scanf( "%d %d %d %d" ,&n,&a,&b,&c); 
+     int da[n+1]; 
+     for(int i=0;i<=n;i++){ 
+     da[i]=0; 
+     } 
+     for(int i=1;i<=n;i++){ 
+     int x=-1,y=-1,z=-1; 
+     if(i>a){ 
+     x=da[i-a]; 
+     } 
+     if(i>b){ 
+     y=da[i-b]; 
+     } 
+     if(i>c){ 
+     y=da[i-c]; 
+     } 
+     da[i]=max(max(x,y),z)+1; 
+     } 
+     printf( "%d" ,da[1]); 
+     return 0; 
+    }'''
+    clex = BufferedCLex(error_func=lambda self, msg, line, column: None,
+                        on_lbrace_func=lambda: None,
+                        on_rbrace_func=lambda: None,
+                        type_lookup_func=lambda typ: None)
+    clex.build()
+    slk_constants = SLKConstants()
+    label_vocabulary = LabelVocabulary(slk_constants)
+    clex.input(code)
+    tokens = InputLexTokens(clex.tokens_buffer, label_vocabulary)
+    action = CAction(slk_constants, label_vocabulary, tokens, True)
+    tokens.typedef_lookup_fn = action.type_lookup_fn
+    slk_parser = SLKParser(slk_constants)
+    slk_parser.parse(tokens, action)
+    tree = action.parse_tree
