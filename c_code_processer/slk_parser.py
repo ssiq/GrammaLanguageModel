@@ -1,5 +1,7 @@
 import abc
 
+import toolz
+
 from c_code_processer.buffered_clex import BufferedCLex
 from c_code_processer.code_util import LeafParseNode, ProductionNode, Production, parse_tree_to_top_down_process
 from common import util
@@ -1433,7 +1435,7 @@ class InputLexTokens(LexTokens):
         res = self._tokens[self._index]
         self._index += 1
         self._last_token = res.value
-        print("The next token is:{}".format(res.value))
+        # print("The next token is:{}".format(res.value))
         return self._typename_to_id(res)
 
     def peek(self, level):
@@ -1565,7 +1567,7 @@ class SLKParser(object):
         START_CONFLICT = self._sklconstants.START_CONFLICT
         while stack[-1] != 0:
             symbol = stack.pop()
-            print(self._report_str(symbol, token))
+            # print(self._report_str(symbol, token))
 
             if self._sklconstants.is_action(symbol):
                 action.execute(symbol - (self._sklconstants.START_ACTION - 1))
@@ -1609,6 +1611,21 @@ class SLKParser(object):
             raise ValueError("The input too short")
 
 
+@toolz.curry
+def slk_parse(code, clex):
+    slk_constants = SLKConstants()
+    label_vocabulary = LabelVocabulary(slk_constants)
+    clex.input(code)
+    tokens = InputLexTokens(clex.tokens_buffer, label_vocabulary, slk_constants)
+    action = CAction(slk_constants, label_vocabulary, tokens)
+    tokens.typedef_lookup_fn = action.type_lookup_fn
+    slk_parser = SLKParser(slk_constants, label_vocabulary)
+    slk_parser.parse(tokens, action)
+    tree = action.parse_tree
+    tokens = [t[0].value for t in clex.tokens_buffer]
+    return parse_tree_to_top_down_process(tree), tokens
+
+
 if __name__ == '__main__':
     code = ''' 
      int max(int a,int b){ 
@@ -1642,13 +1659,4 @@ if __name__ == '__main__':
                         on_rbrace_func=lambda: None,
                         type_lookup_func=lambda typ: None)
     clex.build()
-    slk_constants = SLKConstants()
-    label_vocabulary = LabelVocabulary(slk_constants)
-    clex.input(code)
-    tokens = InputLexTokens(clex.tokens_buffer, label_vocabulary, slk_constants)
-    action = CAction(slk_constants, label_vocabulary, tokens, True)
-    tokens.typedef_lookup_fn = action.type_lookup_fn
-    slk_parser = SLKParser(slk_constants, label_vocabulary)
-    slk_parser.parse(tokens, action)
-    tree = action.parse_tree
-    parse_tree_to_top_down_process(tree)
+    slk_parse(code, clex)
