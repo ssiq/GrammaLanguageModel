@@ -3,7 +3,8 @@ import abc
 import toolz
 
 from c_code_processer.buffered_clex import BufferedCLex
-from c_code_processer.code_util import LeafParseNode, ProductionNode, Production, parse_tree_to_top_down_process
+from c_code_processer.code_util import LeafParseNode, ProductionNode, Production, parse_tree_to_top_down_process, \
+    ProductionVocabulary, show_production_node
 from common import util
 import collections
 
@@ -1622,8 +1623,85 @@ def slk_parse(code, clex):
     slk_parser = SLKParser(slk_constants, label_vocabulary)
     slk_parser.parse(tokens, action)
     tree = action.parse_tree
+    # show_production_node(tree)
     tokens = [t[0].value for t in clex.tokens_buffer]
     return parse_tree_to_top_down_process(tree), tokens
+
+
+class C89ProductionVocabulary(ProductionVocabulary):
+    def __init__(self, slk_constants):
+        self._slk_constants = slk_constants
+        self._non_terminal_compact_dict = self._get_all_compact_id()
+        self._confilict_compact_dicct = {}
+
+    def _get_all_compact_id(self):
+        start_symbol = self._slk_constants.START_SYMBOL
+        end_symbol = self._slk_constants.START_ACTION
+        res = dict()
+        for symbol in range(start_symbol, end_symbol):
+            start_entry = self._slk_constants.parse_row[symbol-start_symbol+1]
+            r_list = set()
+            for i in range(1, start_symbol):
+                r = self._slk_constants.parse_table[start_entry + i]
+                if r == 0:
+                    pass
+                else:
+                    r_list.add(i)
+            res[symbol] = r_list
+        return res
+
+    def get_parse_entry(self, symbol, token):
+        index = self._slk_constants.parse_row[symbol-self._slk_constants.START_SYMBOL+1]
+        index += token
+        return self._slk_constants.parse_table[index]
+
+    def get_conflict_entry(self, entry, token):
+        index = self._slk_constants.conflict_row[entry - (self._slk_constants.START_CONFLICT - 1)]
+        index += token
+        entry = self._slk_constants.conflict_table[index]
+        return entry
+
+    def get_conflict_matched_terminal_node(self, entry):
+        if entry in self._confilict_compact_dicct:
+            return self._confilict_compact_dicct[entry]
+        else:
+            res = set()
+            index = self._slk_constants.conflict_row[entry - (self._slk_constants.START_CONFLICT - 1)]
+            for i in range(1, self._slk_constants.START_SYMBOL):
+                r = self._slk_constants.parse_table[index + i]
+                if r == 0:
+                    pass
+                else:
+                    res.add(i)
+            self._confilict_compact_dicct[entry] = res
+            return res
+
+    def token_num(self):
+        return self._slk_constants.START_ACTION - 1
+
+    @property
+    def EMPTY_id(self):
+        return self._slk_constants.START_ACTION
+
+    def get_matched_terminal_node(self, token_id):
+        if self._slk_constants.is_terminal(token_id) or token_id == self.EMPTY_id:
+            return [token_id]
+        elif self._slk_constants.is_non_terminal(token_id):
+            return self._non_terminal_compact_dict[token_id]
+
+    def is_token(self, token_id):
+        return 0 < token_id < self._slk_constants.START_ACTION
+
+    @property
+    def slk_constants(self):
+        return self._slk_constants
+
+    def need_peek(self, symbol, token, is_entry=False):
+        if is_entry:
+            entry = self.get_conflict_entry(symbol, token)
+        else:
+            entry = self.get_parse_entry(symbol, token)
+        return entry >= self._slk_constants.START_CONFLICT
 
 
 if __name__ == '__main__':

@@ -12,12 +12,16 @@ import pandas as pd
 import os
 
 import config
+from c_code_processer.buffered_clex import BufferedCLex
 from c_code_processer.code_util import C99ProductionVocabulary, \
-    get_all_c99_production_vocabulary, LeafToken
+    get_all_c99_production_vocabulary, LeafToken, show_production_node, parse_tree_to_top_down_process
 from common import torch_util
-from common.util import generate_mask, show_process_map, data_loader, padded_to_length, key_transform, FlatMap
+from common.util import generate_mask, show_process_map, data_loader, padded_to_length, key_transform, FlatMap, IsNone
 from embedding.wordembedding import load_vocabulary, Vocabulary
-from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map, read_parsed_top_down_code
+from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map, read_parsed_top_down_code, \
+    read_parsed_slk_top_down_code
+
+from c_code_processer.slk_parser import SLKConstants, LabelVocabulary, C89ProductionVocabulary, slk_parse
 
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 PAD_TOKEN = -1
@@ -36,14 +40,18 @@ class CCodeDataSet(Dataset):
         self.vocabulary = vocabulary
 
         self._samples = [self._get_raw_sample(i) for i in range(len(self.data_df))]
+        # for t in self._samples:
+        #     print(t)
         if self.transform:
             self._samples = show_process_map(self.transform, self._samples)
+        # for t in self._samples:
+        #     print(t)
         # for s in self._samples:
         #     for k, v in s.items():
         #         print("{}:shape {}".format(k, np.array(v).shape))
 
     def _get_raw_sample(self, index):
-        tokens = self.vocabulary.parse_text_without_pad([[k.value for k in self.data_df.iloc[index]["tokens"]]],
+        tokens = self.vocabulary.parse_text_without_pad([[k for k in self.data_df.iloc[index]["tokens"]]],
                                                         use_position_label=True)[0]
         sample = {"tree": self.data_df.iloc[index]["parse_tree"],
                   "tokens": tokens[:-1],
@@ -63,7 +71,7 @@ class GrammarLanguageModelTypeInputMap(object):
     Map the top down parsing order node to the input format of the GrammarLanguageModel
     """
     def __init__(self,
-                 production_vocabulary: C99ProductionVocabulary):
+                 production_vocabulary: C89ProductionVocabulary):
         self._production_vocabulary = production_vocabulary
 
     def __call__(self, sample):
@@ -71,29 +79,71 @@ class GrammarLanguageModelTypeInputMap(object):
         :param sample: a list of node
         :return: a dict of list {'to_parse_token', 'terminal_mask'}
         """
+        # print()
         production_vocabulary = self._production_vocabulary
 
-        get_token_id = production_vocabulary.get_token_id
         get_matched_terminal_index = production_vocabulary.get_matched_terminal_node
         vocabulary_size = production_vocabulary.token_num()
         generate_mask_fn = generate_mask(size=vocabulary_size)
         get_node_right_id = lambda x: x.right_id
 
-        stack = [get_token_id(production_vocabulary.EMPTY), sample[0].left_id]
+        stack = [production_vocabulary.EMPTY_id, sample[0].left_id]
+        string_stack = ["EMPTY", sample[0].left]
         to_parse_token_id = [sample[0].left_id]
+        now_id = 0
+        peeked_max_id = -1
+
+        sample = list(filter(lambda x: not(isinstance(x, LeafToken) and not production_vocabulary.is_token(x.type_id)),
+                             sample))
+
+        tokens = []
+        for node in sample:
+            if isinstance(node, LeafToken) and production_vocabulary.is_token(node.type_id):
+                tokens.append(node.type_id)
+
+        peeked_compact_dict = {}
 
         for node in sample:
+            # print(node)
             type_id = stack.pop()
+            type_string = string_stack.pop()
             if isinstance(node, LeafToken):
                 # print("Terminal token:{}".format(node.value))
-                to_parse_token_id.append(stack[-1])
+                if production_vocabulary.is_token(node.type_id):
+                    now_id +=1
+                    to_parse_token_id.append(stack[-1])
             else:
-                assert type_id == node.left_id
-                for right_id in reversed(get_node_right_id(node)):
-                    stack.append(right_id)
+                assert type_id == node.left_id, "type string is {}, now left is {}".format(type_string, node.left)
+                if now_id < len(tokens) and production_vocabulary.need_peek(type_id, tokens[now_id]):
+                    # print("need peek")
+                    level = 1
+                    entry = production_vocabulary.get_parse_entry(type_id, tokens[now_id])
+                    peeked_id = now_id + level
+                    if peeked_id not in peeked_compact_dict:
+                        peeked_compact_dict[peeked_id] = production_vocabulary.get_conflict_matched_terminal_node(entry)
+                    while production_vocabulary.need_peek(entry, tokens[peeked_id], True):
+                        entry = production_vocabulary.get_conflict_entry(entry, tokens[peeked_id])
+                        peeked_id += 1
+                        if peeked_id not in peeked_compact_dict:
+                            peeked_compact_dict[peeked_id] = production_vocabulary.get_conflict_matched_terminal_node(
+                                entry)
+                    peeked_max_id = max(peeked_max_id, peeked_id)
 
-        terminal_mask = [generate_mask_fn(get_matched_terminal_index(token)) for token in to_parse_token_id]
-        return {"to_parse_token": to_parse_token_id, "terminal_mask": terminal_mask}
+                for i, right_id in reversed(list(enumerate(get_node_right_id(node)))):
+                    if production_vocabulary.is_token(right_id):
+                        stack.append(right_id)
+                        string_stack.append(node.right[i])
+
+        terminal_mask = []
+        for i, token in enumerate(to_parse_token_id):
+            if i in peeked_compact_dict:
+                # print("peek", peeked_compact_dict[i])
+                terminal_mask.append(generate_mask_fn(peeked_compact_dict[i]))
+            else:
+                # print("terminal", get_matched_terminal_index(token))
+                terminal_mask.append(generate_mask_fn(get_matched_terminal_index(token)))
+
+        return {"to_parse_token": to_parse_token_id, "terminal_mask": terminal_mask,}
 
 
 class PadMap(object):
@@ -287,7 +337,7 @@ def train(model,
           optimizer):
     total_loss = torch.Tensor([0])
     steps = torch.Tensor([0])
-    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True,  drop_last=True, epoch_ratio=0.25):
+    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True,  drop_last=True, epoch_ratio=0.5):
         # print(batch_data['terminal_mask'])
         # print('batch_data size: ', len(batch_data['terminal_mask'][0]), len(batch_data['terminal_mask'][0][0]))
         # res = list(more_itertools.collapse(batch_data['terminal_mask']))
@@ -377,18 +427,24 @@ def train_and_evaluate(data,
     for d, n in zip(data, ["train", "val", "test"]):
         print("There are {} raw data in the {} dataset".format(len(d), n))
     vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map, [BEGIN], [END], UNK)
-    production_vocabulary = get_all_c99_production_vocabulary()
-    print("terminal num:{}".format(len(production_vocabulary._terminal_id_set)))
+    slk_constants = SLKConstants()
+    label_vocabulary = LabelVocabulary(slk_constants)
+    production_vocabulary = C89ProductionVocabulary(slk_constants)
     transforms_fn = transforms.Compose([
+        IsNone("original"),
         key_transform(GrammarLanguageModelTypeInputMap(production_vocabulary), "tree"),
+        IsNone("after type input"),
         FlatMap(),
+        IsNone("Flat Map"),
         PadMap(production_vocabulary.token_num()),
+        IsNone("Pad Map"),
     ])
     generate_dataset = lambda df: CCodeDataSet(df, vocabulary, transforms_fn)
     data = [generate_dataset(d) for d in data]
     for d, n in zip(data, ["train", "val", "test"]):
         print("There are {} parsed data in the {} dataset".format(len(d), n))
     train_dataset, valid_dataset, test_dataset = data
+
 
     loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=PAD_TOKEN)
     model = GrammarLanguageModel(
@@ -440,13 +496,13 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
-    data = read_parsed_top_down_code()
-    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 30, "grammar_lm_1.pkl", load_previous_model=True)
-    #The model grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
-    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 30, "grammar_lm_2.pkl", load_previous_model=True)
-    #The model grammar_lm_2.pkl best valid perplexity is 3.062429189682007 and test perplexity is 3.045041799545288
-    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "grammar_lm_3.pkl", load_previous_model=True)
-    #The model grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
+    data = read_parsed_slk_top_down_code(False)
+    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 30, "c89_grammar_lm_1.pkl", load_previous_model=False)
+    #The model c89_grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
+    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 30, "c89_grammar_lm_2.pkl", load_previous_model=True)
+    #The model c89_grammar_lm_2.pkl best valid perplexity is 3.062429189682007 and test perplexity is 3.045041799545288
+    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "c89_grammar_lm_3.pkl", load_previous_model=True)
+    #The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
     # monitor = MonitoredParser(lex_optimize=False,
     #                           yacc_debug=True,
     #                           yacc_optimize=False,
@@ -457,15 +513,24 @@ if __name__ == '__main__':
     #             return a+b*c;
     #         }
     #         """
-    # node, _, tokens = monitor.parse_get_production_list_and_token_list(code)
+    # # node, _, tokens = monitor.parse_get_production_list_and_token_list(code)
+    # clex = BufferedCLex(error_func=lambda self, msg, line, column: None,
+    #                     on_lbrace_func=lambda: None,
+    #                     on_rbrace_func=lambda: None,
+    #                     type_lookup_func=lambda typ: None)
+    # clex.build()
+    # node, tokens = slk_parse(code, clex)
     # for token in tokens:
     #     print(token)
-    # show_production_node(node)
-    # productions = parse_tree_to_top_down_process(node)
-    # for p in productions:
+    # # show_production_node(node)
+    #
+    # # productions = parse_tree_to_top_down_process(node)
+    # for p in node:
     #     print(p)
-    # production_vocabulary = get_all_c99_production_vocabulary()
+    # # production_vocabulary = get_all_c99_production_vocabulary()
+    # slk_constants = SLKConstants()
+    # production_vocabulary = C89ProductionVocabulary(slk_constants)
     # input_map = GrammarLanguageModelTypeInputMap(production_vocabulary)
-    # input_f = input_map(productions)
+    # input_f = input_map(node)
     # print("length of token:{}".format(len(tokens)))
     # print("length of to parse token:{}".format(len(input_f['to_parse_token'])))

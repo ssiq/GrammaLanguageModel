@@ -1,11 +1,11 @@
 import abc
 import re
 import collections
-import copy
 
 import inspect
 import types
 import typing
+from abc import abstractmethod, ABCMeta
 
 from c_code_processer.pycparser import pycparser
 import more_itertools
@@ -13,7 +13,6 @@ import cytoolz as toolz
 
 from c_code_processer.buffered_clex import BufferedCLex
 from c_code_processer.pycparser.pycparser import CParser
-from c_code_processer.pycparser.pycparser.ply.yacc import YaccProduction
 from common import util
 
 
@@ -156,7 +155,26 @@ class Production(object):
         return self.left.__hash__() + self.left_id + sum(t.__hash__() for t in self.right) + sum(self.right_id)
 
 
-class ProductionVocabulary(object):
+class ProductionVocabulary(object, metaclass=ABCMeta):
+    @abstractmethod
+    def get_matched_terminal_node(self, token_id):
+        pass
+
+    @abstractmethod
+    def token_num(self):
+        pass
+
+    @property
+    @abstractmethod
+    def EMPTY_id(self):
+        pass
+
+
+class C99ProductionVocabulary(ProductionVocabulary):
+    @property
+    def EMPTY_id(self):
+        return self.get_token_id(self.EMPTY)
+
     def __init__(self,
                  production_list: typing.List,):
         self._token_set = set(i.strip() for i in more_itertools.collapse(production_list))
@@ -264,7 +282,7 @@ def get_all_c99_production_vocabulary():
 
     production_list = list(more_itertools.flatten(list(map(split_production_string, production_list))))
 
-    production_vocabulary = ProductionVocabulary(production_list,)
+    production_vocabulary = C99ProductionVocabulary(production_list, )
 
     return production_vocabulary
 

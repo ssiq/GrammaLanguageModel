@@ -12,7 +12,8 @@ import more_itertools
 import sklearn
 import pandas as pd
 import sys
-import cytoolz as toolz
+# import cytoolz as toolz
+import toolz
 import collections
 
 import time
@@ -354,11 +355,11 @@ def show_process_map(fn, l, print_steps=1000, error_default_value=None):
         if i % print_steps == 0:
             print("{}/{} finished".format(i, len(l)))
             print("{}/{} data map failed".format(fail_number, len(l)))
-        try:
-            res.append(fn(t))
-        except Exception as e:
-            fail_number += 1
-            res.append(error_default_value)
+        # try:
+        res.append(fn(t))
+        # except Exception as e:
+        #     fail_number += 1
+        #     res.append(error_default_value)
     print("This map use {} seconds".format(time.time()-begin_time))
     print("{}/{} data map failed".format(fail_number, len(l)))
     return res
@@ -555,12 +556,31 @@ class ListShapeErrorException(Exception):
     pass
 
 
-def key_transform(transform, key, ):
+def key_transform(transform, *key, ):
     def transform_fn(sample):
-        sample[key] = transform(sample[key])
+        if len(key) == 1:
+            sample[key[0]] = transform(sample[key[0]])
+        else:
+            in_sample = {k: sample[k] for k in key}
+            res = transform(in_sample)
+            for k in key:
+                del sample[k]
+            sample = {**sample, **res}
+
+        # print("sample:{}".format(sample))
         return sample
 
     return transform_fn
+
+
+class IsNone(object):
+    def __init__(self, name):
+        self._name = name
+
+    def __call__(self, sample):
+        if sample is None:
+            print("{} is None".format(self._name))
+        return sample
 
 
 class FlatMap(object):
