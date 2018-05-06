@@ -496,7 +496,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
-    data = read_parsed_slk_top_down_code(False)
+    data = read_parsed_slk_top_down_code()
     train_and_evaluate(data, 16, 100, 100, 3, 0.001, 30, "c89_grammar_lm_1.pkl", load_previous_model=False)
     #The model c89_grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
     train_and_evaluate(data, 16, 200, 200, 3, 0.001, 30, "c89_grammar_lm_2.pkl", load_previous_model=True)

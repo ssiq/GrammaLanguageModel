@@ -355,11 +355,11 @@ def show_process_map(fn, l, print_steps=1000, error_default_value=None):
         if i % print_steps == 0:
             print("{}/{} finished".format(i, len(l)))
             print("{}/{} data map failed".format(fail_number, len(l)))
-        # try:
-        res.append(fn(t))
-        # except Exception as e:
-        #     fail_number += 1
-        #     res.append(error_default_value)
+        try:
+            res.append(fn(t))
+        except Exception as e:
+            fail_number += 1
+            res.append(error_default_value)
     print("This map use {} seconds".format(time.time()-begin_time))
     print("{}/{} data map failed".format(fail_number, len(l)))
     return res
