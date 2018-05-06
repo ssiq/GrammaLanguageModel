@@ -43,7 +43,7 @@ class CCodeDataSet(Dataset):
         # for t in self._samples:
         #     print(t)
         if self.transform:
-            self._samples = show_process_map(self.transform, self._samples)
+            self._samples = list(filter(lambda x: x is not None, show_process_map(self.transform, self._samples)))
         # for t in self._samples:
         #     print(t)
         # for s in self._samples:
