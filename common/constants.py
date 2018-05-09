@@ -15,13 +15,15 @@ TMP_FILE_PATH = os.path.join(ROOT_PATH, 'tmp')
 # db path
 TRAIN_DATA_DBPATH = os.path.join(DATA_PATH, 'train_data.db')
 COMPILE_SUCCESS_DATA_DBPATH = os.path.join(DATA_PATH, 'compile_success_data.db')
+FAKE_C_COMPILE_ERROR_DATA_DBPATH = os.path.join(DATA_PATH, 'fake_c_compile_error_data.db')
 
 
 # table name
 ACTUAL_C_ERROR_RECORDS = 'actual_c_error_records'
 CPP_TESTCASE_ERROR_RECORDS = 'cpp_testcase_error_records'
 C_COMPILE_SUCCESS_RECORDS = 'c_compile_success_records'
-
+COMMON_C_ERROR_RECORDS = 'common_c_error_records'
+RANDOM_C_ERROR_RECORDS = 'random_c_error_records'
 
 # code status and language transform dict
 verdict = {'OK': 1, 'REJECTED': 2, 'WRONG_ANSWER': 3, 'RUNTIME_ERROR': 4, 'TIME_LIMIT_EXCEEDED': 5, 'MEMORY_LIMIT_EXCEEDED': 6,
