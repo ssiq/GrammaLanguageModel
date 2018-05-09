@@ -13,15 +13,15 @@ import os
 
 import config
 from c_code_processer.buffered_clex import BufferedCLex
-from c_code_processer.code_util import C99ProductionVocabulary, \
-    get_all_c99_production_vocabulary, LeafToken, show_production_node, parse_tree_to_top_down_process
+from c_code_processer.code_util import LeafToken, show_production_node, parse_tree_to_top_down_process
 from common import torch_util
 from common.util import generate_mask, show_process_map, data_loader, padded_to_length, key_transform, FlatMap, IsNone
 from embedding.wordembedding import load_vocabulary, Vocabulary
 from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map, read_parsed_top_down_code, \
-    read_parsed_slk_top_down_code
+    read_parsed_slk_top_down_code, read_parsed_c99_slk_top_down_code
 
-from c_code_processer.slk_parser import SLKConstants, LabelVocabulary, C89ProductionVocabulary, slk_parse
+from c_code_processer.slk_parser import SLKConstants, LabelVocabulary, SLKProductionVocabulary, slk_parse, \
+    C99SLKConstants, C99LabelVocabulary
 
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 PAD_TOKEN = -1
@@ -71,7 +71,7 @@ class GrammarLanguageModelTypeInputMap(object):
     Map the top down parsing order node to the input format of the GrammarLanguageModel
     """
     def __init__(self,
-                 production_vocabulary: C89ProductionVocabulary):
+                 production_vocabulary: SLKProductionVocabulary):
         self._production_vocabulary = production_vocabulary
 
     def __call__(self, sample):
@@ -107,6 +107,7 @@ class GrammarLanguageModelTypeInputMap(object):
             # print(node)
             type_id = stack.pop()
             type_string = string_stack.pop()
+            # print("The stack popped token is:{}, string:{}".format(type_id, type_string))
             if isinstance(node, LeafToken):
                 # print("Terminal token:{}".format(node.value))
                 if production_vocabulary.is_token(node.type_id):
@@ -133,6 +134,9 @@ class GrammarLanguageModelTypeInputMap(object):
                     if production_vocabulary.is_token(right_id):
                         stack.append(right_id)
                         string_stack.append(node.right[i])
+                    else:
+                        # print("{} with id {} is not a token".format(node.right[i], right_id))
+                        pass
 
         terminal_mask = []
         for i, token in enumerate(to_parse_token_id):
@@ -427,9 +431,9 @@ def train_and_evaluate(data,
     for d, n in zip(data, ["train", "val", "test"]):
         print("There are {} raw data in the {} dataset".format(len(d), n))
     vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map, [BEGIN], [END], UNK)
-    slk_constants = SLKConstants()
-    label_vocabulary = LabelVocabulary(slk_constants)
-    production_vocabulary = C89ProductionVocabulary(slk_constants)
+    slk_constants = C99SLKConstants()
+    label_vocabulary = C99LabelVocabulary(slk_constants)
+    production_vocabulary = SLKProductionVocabulary(slk_constants)
     transforms_fn = transforms.Compose([
         IsNone("original"),
         key_transform(GrammarLanguageModelTypeInputMap(production_vocabulary), "tree"),
@@ -496,24 +500,47 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
-    data = read_parsed_slk_top_down_code()
-    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 30, "c89_grammar_lm_1.pkl", load_previous_model=False)
+    data = read_parsed_c99_slk_top_down_code()
+    # print(data[0]['code'][0])
+    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 30, "c99_grammar_lm_1.pkl", load_previous_model=False)
     #The model c89_grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
-    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 30, "c89_grammar_lm_2.pkl", load_previous_model=True)
+    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 30, "c99_grammar_lm_2.pkl", load_previous_model=False)
     #The model c89_grammar_lm_2.pkl best valid perplexity is 3.062429189682007 and test perplexity is 3.045041799545288
-    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "c89_grammar_lm_3.pkl", load_previous_model=True)
+    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "c99_grammar_lm_3.pkl", load_previous_model=False)
     #The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
     # monitor = MonitoredParser(lex_optimize=False,
     #                           yacc_debug=True,
     #                           yacc_optimize=False,
     #                           yacctab='yacctab')
     # code = """
-    #         int add(int a, int b)
-    #         {
-    #             return a+b*c;
-    #         }
+    #              int max(int a,int b){
+    #  if (a>b)return a;
+    #  else return b;}
+    # int main(void) {
+    #  int n,a,b,c, i;
+    #  int da[n+1];
+    #  scanf( "%d %d %d %d" ,&n,&a,&b,&c);
+    #  for(i=0;i<=n;i++){
+    #  da[i]=0;
+    #  }
+    #  for(i=1;i<=n;i++){
+    #  int x=-1,y=-1,z=-1;
+    #  if(i>a){
+    #  x=da[i-a];
+    #  }
+    #  if(i>b){
+    #  y=da[i-b];
+    #  }
+    #  if(i>c){
+    #  y=da[i-c];
+    #  }
+    #  da[i]=max(max(x,y),z)+1;
+    #  }
+    #  printf( "%d" ,da[1]);
+    #  return 0;
+    # }
     #         """
-    # # node, _, tokens = monitor.parse_get_production_list_and_token_list(code)
+    # # # node, _, tokens = monitor.parse_get_production_list_and_token_list(code)
     # clex = BufferedCLex(error_func=lambda self, msg, line, column: None,
     #                     on_lbrace_func=lambda: None,
     #                     on_rbrace_func=lambda: None,
@@ -528,8 +555,8 @@ if __name__ == '__main__':
     # for p in node:
     #     print(p)
     # # production_vocabulary = get_all_c99_production_vocabulary()
-    # slk_constants = SLKConstants()
-    # production_vocabulary = C89ProductionVocabulary(slk_constants)
+    # slk_constants = C99SLKConstants()
+    # production_vocabulary = SLKProductionVocabulary(slk_constants)
     # input_map = GrammarLanguageModelTypeInputMap(production_vocabulary)
     # input_f = input_map(node)
     # print("length of token:{}".format(len(tokens)))
