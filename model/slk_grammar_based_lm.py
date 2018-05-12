@@ -38,6 +38,7 @@ class CCodeDataSet(Dataset):
                  transform=None):
         self.data_df = data_df[data_df['tokens'].map(lambda x: x is not None)]
         self.data_df = self.data_df[self.data_df['tokens'].map(lambda x: len(x) < MAX_LENGTH)]
+        print("The max length:{}".format(max(self.data_df['tokens'].map(lambda x: len(x)))))
         self.transform = transform
         self.vocabulary = vocabulary
 
@@ -194,17 +195,11 @@ class GrammarLanguageModel(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_state_size, type_num)).cuda(GPU_INDEX)
 
-        self.type_feature_mlp = nn.Sequential(
-            nn.Linear(embedding_dim, hidden_state_size),
-            nn.ReLU(),
-            nn.Linear(hidden_state_size, vocab_size)
-        ).cuda(GPU_INDEX)
-
-        self.rnn_feature_mlp = nn.Sequential(
-            nn.Linear(hidden_state_size, hidden_state_size),
-            nn.ReLU(),
-            nn.Linear(hidden_state_size, vocab_size),
-        ).cuda(GPU_INDEX)
+        # self.type_feature_mlp = nn.Sequential(
+        #     nn.Linear(embedding_dim, hidden_state_size),
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_state_size, vocab_size)
+        # ).cuda(GPU_INDEX)
 
         self._initial_state = self.initial_state()
         # self._all_type_index = torch.range(0, type_num-1).type(torch.LongTensor).cuda(GPU_INDEX)
@@ -217,6 +212,12 @@ class GrammarLanguageModel(nn.Module):
         self.stable_log_fn = create_stable_log_fn(1e-7)
         self._terminal_token_index = torch.LongTensor(
             sorted(list(set(terminal_token_index)-{identifier_index}))).cuda(GPU_INDEX)
+
+        self.rnn_feature_mlp = nn.Sequential(
+            nn.Linear(hidden_state_size, hidden_state_size),
+            nn.ReLU(),
+            nn.Linear(hidden_state_size, vocab_size -len(self._terminal_token_index)),
+        ).cuda(GPU_INDEX)
 
 
     def _embedding(self, token_sequence):
@@ -302,8 +303,7 @@ class GrammarLanguageModel(nn.Module):
         # print("type_feature_predict:{}".format(torch.typename(type_feature_predict)))
         # type_feature_predict.register_hook(create_hook_fn("type_feature_predict"))
         # print("type_feature_predict size:{}".format(type_feature_predict.size()))
-        rnn_feature_predict = torch_util.mask_softmax(self.rnn_feature_mlp(rnn_feature),
-                                                      self._identifier_token_mask)
+        rnn_feature_predict = F.softmax(self.rnn_feature_mlp(rnn_feature), dim=-1)
         # print("rnn_feature_predict:{}".format(torch.typename(rnn_feature_predict)))
         # rnn_feature_predict.register_hook(create_hook_fn("rnn_feature_predict"))
         # print("rnn_feature_predict size:{}".format(rnn_feature_predict.size()))
@@ -315,13 +315,8 @@ class GrammarLanguageModel(nn.Module):
                                           self._terminal_token_index)
         # print("copy_predict.size:{}".format(copy_predict.size()))
         # print("keyword_index_size:{}".format(self._keyword_index.size()))
-        rnn_feature_predict = torch.transpose(rnn_feature_predict, 0, 1)
-        copy_predict = torch.transpose(copy_predict, 0, 1)
-        rnn_feature_predict.index_copy_(0,
-                                        self._keyword_index,
-                                        copy_predict)
+        rnn_feature_predict = torch.cat((copy_predict, rnn_feature_predict), dim=1)
         del copy_predict
-        rnn_feature_predict = torch.transpose(rnn_feature_predict, 0, 1)
         # predict = F.log_softmax(rnn_feature_predict+torch.mm(ternimal_token_probability, type_feature_predict), dim=-1)
         # print("predict:{}".format(torch.typename(predict)))
         # print("predict size:{}".format(predict.size()))
@@ -463,6 +458,9 @@ def train_and_evaluate(data,
     for d, n in zip(data, ["train", "val", "test"]):
         print("There are {} raw data in the {} dataset".format(len(d), n))
     vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map_with_keyword, [BEGIN], [END], UNK)
+    print("vocab_size:{}".format(vocabulary.vocabulary_size))
+    print("The max token id:{}".format(max(vocabulary.word_to_id_dict.values())))
+
     slk_constants = C99SLKConstants()
     terminal_token_index = set(range(slk_constants.START_SYMBOL-2)) - {63, 64}
     label_vocabulary = C99LabelVocabulary(slk_constants)

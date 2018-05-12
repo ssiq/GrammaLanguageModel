@@ -7,7 +7,7 @@ from c_code_processer.buffered_clex import BufferedCLex
 from c_code_processer.code_util import tokenize, MonitoredParser, parse_tree_to_top_down_process, extract_include, \
     replace_include_with_blank
 from c_code_processer.slk_parser import slk_parse, c99_slk_parse
-from common.constants import CACHE_DATA_PATH, pre_defined_c_tokens
+from common.constants import CACHE_DATA_PATH, pre_defined_c_tokens, pre_defined_c_tokens_map
 from common.constants import CACHE_DATA_PATH
 from common.dataset_util import create_error_tokens_by_operations, create_error_tokens
 from common.parse_util import tokenize_by_clex_fn
@@ -65,10 +65,56 @@ def get_vocabulary_id_map():
     return {word: i for i, word in enumerate(word_list)}
 
 
-@disk_cache(basename='get_vocabulary_id_map_with_keyword_moved_literal1', directory=CACHE_DATA_PATH)
+@disk_cache(basename='get_vocabulary_id_map_with_keyword_moved_literal3', directory=CACHE_DATA_PATH)
 def get_vocabulary_id_map_with_keyword():
-    word_list = sorted(get_token_vocabulary() | set(pre_defined_c_tokens) | {"CONSTANT", "STRING_LITERAL"})
-    return {word: i for i, word in enumerate(word_list)}
+    p_dict ={"ID": 1,
+                             "CONSTANT": 2, # all constants
+                             "STRING_LITERAL": 3, # all string literal
+                             "LPAREN": 4,
+                             "RPAREN": 5,
+                             "LBRACKET": 6,
+                             "RBRACKET": 7,
+                             "PERIOD": 8,
+                             "ARROW": 9,
+                             "PLUSPLUS": 10,
+                             "MINUSMINUS": 11,
+                             "COMMA": 12,
+                             "SIZEOF": 13,
+                             "AND": 14,
+                             "TIMES": 15,
+                             "PLUS": 16,
+                             "MINUS": 17,
+                             "NOT": 18,
+                             "LNOT": 19,
+                             "DIVIDE": 20,
+                             "MOD": 21, "LSHIFT": 22, "RSHIFT": 23,
+                             "LT": 24, "GT": 25, "LE": 26, "GE": 27, "EQ": 28, "NE": 29,
+                             "XOR": 30, "OR": 31, "LAND": 32, "LOR": 33, "CONDOP": 34, "COLON": 35,
+                             "EQUALS": 36, "TIMESEQUAL": 37, "DIVEQUAL": 38, "MODEQUAL": 39, "PLUSEQUAL": 40,
+                             "MINUSEQUAL": 41, "LSHIFTEQUAL": 42, "RSHIFTEQUAL": 43, "ANDEQUAL": 44,
+                             "XOREQUAL": 45, "OREQUAL": 46, "SEMI": 47, "TYPEDEF": 48, "EXTERN": 49,
+                             "STATIC": 50, "AUTO": 51, "REGISTER": 52, "VOID": 53, "CHAR": 54, "SHORT": 55,
+                             "INT": 56, "LONG": 57, "FLOAT": 58, "DOUBLE": 59, "SIGNED": 60, "UNSIGNED": 61,
+                             "_BOOL": 62, "_COMPLEX": 63, "IMAGINARY_": 64, "TYPEID": 65, "LBRACE": 66,
+                             "RBRACE": 67, "STRUCT": 68, "UNION": 69, "ENUM": 70, "CONST": 71, "RESTRICT": 72,
+                             "VOLATILE": 73, "INLINE": 74, "ELLIPSIS": 75, "CASE": 76, "DEFAULT": 77, "IF": 78,
+                             "SWITCH": 79, "ELSE": 80, "FOR": 81, "WHILE": 82, "DO": 83, "GOTO": 84,
+                             "CONTINUE": 85, "BREAK": 86, "RETURN": 87, "END_OF_SLK_INPUT": 88,
+                             }
+    keyword_id_set = sorted(set(pre_defined_c_tokens) | {"CONSTANT", "STRING_LITERAL"})
+    pre_defined_c_tokens_map_key = pre_defined_c_tokens_map.keys()
+    keyword_id_map = {}
+    index = 0
+    for k in p_dict.keys():
+        if k in pre_defined_c_tokens_map_key:
+            keyword_id_map[pre_defined_c_tokens_map[k]] = index
+            index += 1
+        elif k in {"CONSTANT", "STRING_LITERAL"}:
+            keyword_id_map[k] = index
+            index += 1
+    word_list = sorted(set(get_token_vocabulary()) - set(keyword_id_set))
+    word_map = {word: i for i, word in enumerate(word_list, start=len(keyword_id_map))}
+    return {**keyword_id_map, **word_map}
 
 
 # @disk_cache(basename="read_parsed_tree_code", directory=CACHE_DATA_PATH)
