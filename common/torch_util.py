@@ -74,3 +74,13 @@ def create_ori_index_to_packed_index_dict(batch_sizes):
             res[(j, i)] = begin_index + j
         begin_index += batch_sizes[i]
     return res
+
+
+def padded_tensor_one_dim_to_length(one_tensor, dim, padded_length, is_cuda=False, gpu_index=0, fill_value=0):
+    before_encoder_shape = list(one_tensor.shape)
+    before_encoder_shape[dim] = padded_length - before_encoder_shape[dim]
+    expend_tensor = (torch.ones(before_encoder_shape) * fill_value)
+    if is_cuda:
+        expend_tensor = expend_tensor.cuda(gpu_index)
+    padded_outputs = torch.cat((one_tensor, expend_tensor), dim=dim)
+    return padded_outputs
