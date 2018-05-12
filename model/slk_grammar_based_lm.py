@@ -15,10 +15,12 @@ import config
 from c_code_processer.buffered_clex import BufferedCLex
 from c_code_processer.code_util import LeafToken, show_production_node, parse_tree_to_top_down_process
 from common import torch_util
+from common.constants import pre_defined_c_tokens
+from common.torch_util import create_stable_log_fn
 from common.util import generate_mask, show_process_map, data_loader, padded_to_length, key_transform, FlatMap, IsNone
 from embedding.wordembedding import load_vocabulary, Vocabulary
 from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map, read_parsed_top_down_code, \
-    read_parsed_slk_top_down_code, read_parsed_c99_slk_top_down_code
+    read_parsed_slk_top_down_code, read_parsed_c99_slk_top_down_code, get_vocabulary_id_map_with_keyword
 
 from c_code_processer.slk_parser import SLKConstants, LabelVocabulary, SLKProductionVocabulary, slk_parse, \
     C99SLKConstants, C99LabelVocabulary
@@ -172,6 +174,9 @@ class GrammarLanguageModel(nn.Module):
                  embedding_dim,
                  hidden_state_size,
                  rnn_num_layers,
+                 identifier_index,
+                 keyword_index,
+                 terminal_token_index,
                  batch_size):
         super().__init__()
         self._batch_size = batch_size
@@ -202,7 +207,16 @@ class GrammarLanguageModel(nn.Module):
         ).cuda(GPU_INDEX)
 
         self._initial_state = self.initial_state()
-        self._all_type_index = torch.range(0, type_num-1).type(torch.LongTensor).cuda(GPU_INDEX)
+        # self._all_type_index = torch.range(0, type_num-1).type(torch.LongTensor).cuda(GPU_INDEX)
+        self._identifier_index = torch.LongTensor([identifier_index]).cuda(GPU_INDEX)
+        self._terminal_token_without_identifier_index = torch.LongTensor(
+            sorted(list(set(range(type_num)) - {identifier_index}))).cuda(GPU_INDEX)
+        self._keyword_index = torch.LongTensor(keyword_index).cuda(GPU_INDEX)
+        self._identifier_token_mask = torch.FloatTensor(
+            generate_mask(set(range(vocab_size)) - set(keyword_index), vocab_size)).cuda(GPU_INDEX)
+        self.stable_log_fn = create_stable_log_fn(1e-7)
+        self._terminal_token_index = torch.LongTensor(
+            sorted(list(set(terminal_token_index)-{identifier_index}))).cuda(GPU_INDEX)
 
 
     def _embedding(self, token_sequence):
@@ -279,25 +293,43 @@ class GrammarLanguageModel(nn.Module):
         # print("terminal mask size:{}".format(terminal_mask.size()))
         ternimal_token_probability = torch_util.mask_softmax(ternimal_token_probability,
                                                              terminal_mask.cuda(GPU_INDEX))
+        identifier_probability = ternimal_token_probability[:, self._identifier_index]
         # print("ternimal_token_probability:{}".format(torch.typename(ternimal_token_probability)))
         # ternimal_token_probability.register_hook(create_hook_fn("ternimal_token_probability"))
         # print("masked terminal_token_probability size:{}".format(ternimal_token_probability.size()))
 
-        type_feature_predict = self.type_feature_mlp(self.type_embedding(self._all_type_index))
+        # type_feature_predict = self.type_feature_mlp(self.type_embedding(self._all_type_index))
         # print("type_feature_predict:{}".format(torch.typename(type_feature_predict)))
         # type_feature_predict.register_hook(create_hook_fn("type_feature_predict"))
         # print("type_feature_predict size:{}".format(type_feature_predict.size()))
-        rnn_feature_predict = self.rnn_feature_mlp(rnn_feature)
+        rnn_feature_predict = torch_util.mask_softmax(self.rnn_feature_mlp(rnn_feature),
+                                                      self._identifier_token_mask)
         # print("rnn_feature_predict:{}".format(torch.typename(rnn_feature_predict)))
         # rnn_feature_predict.register_hook(create_hook_fn("rnn_feature_predict"))
         # print("rnn_feature_predict size:{}".format(rnn_feature_predict.size()))
         # ternimal_token_probability = autograd.Variable(torch_util.to_sparse(ternimal_token_probability,
         #                                                                     gpu_index=GPU_INDEX))
-        predict = F.log_softmax(rnn_feature_predict+torch.mm(ternimal_token_probability, type_feature_predict), dim=-1)
+        rnn_feature_predict = rnn_feature_predict * identifier_probability
+        # print("rnn_feature_predict_size:{}".format(rnn_feature_predict.size()))
+        copy_predict = torch.index_select(ternimal_token_probability, 1,
+                                          self._terminal_token_index)
+        # print("copy_predict.size:{}".format(copy_predict.size()))
+        # print("keyword_index_size:{}".format(self._keyword_index.size()))
+        rnn_feature_predict = torch.transpose(rnn_feature_predict, 0, 1)
+        copy_predict = torch.transpose(copy_predict, 0, 1)
+        rnn_feature_predict.index_copy_(0,
+                                        self._keyword_index,
+                                        copy_predict)
+        del copy_predict
+        rnn_feature_predict = torch.transpose(rnn_feature_predict, 0, 1)
+        # predict = F.log_softmax(rnn_feature_predict+torch.mm(ternimal_token_probability, type_feature_predict), dim=-1)
         # print("predict:{}".format(torch.typename(predict)))
         # print("predict size:{}".format(predict.size()))
         # predict.register_hook(create_hook_fn("predict"))
+        predict = self.stable_log_fn(rnn_feature_predict)
+        del rnn_feature_predict
         predict_log = torch.nn.utils.rnn.PackedSequence(predict, batch_sizes)
+        del predict
         # predict_log.register_hook(create_hook_fn("predict_log1"))
         predict_log, _ = torch.nn.utils.rnn.pad_packed_sequence(predict_log, batch_first=True, padding_value=PAD_TOKEN)
         # predict_log.register_hook(create_hook_fn("predict_log"))
@@ -430,8 +462,9 @@ def train_and_evaluate(data,
     save_path = os.path.join(config.save_model_root, saved_name)
     for d, n in zip(data, ["train", "val", "test"]):
         print("There are {} raw data in the {} dataset".format(len(d), n))
-    vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map, [BEGIN], [END], UNK)
+    vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map_with_keyword, [BEGIN], [END], UNK)
     slk_constants = C99SLKConstants()
+    terminal_token_index = set(range(slk_constants.START_SYMBOL-2)) - {63, 64}
     label_vocabulary = C99LabelVocabulary(slk_constants)
     production_vocabulary = SLKProductionVocabulary(slk_constants)
     transforms_fn = transforms.Compose([
@@ -448,7 +481,8 @@ def train_and_evaluate(data,
     for d, n in zip(data, ["train", "val", "test"]):
         print("There are {} parsed data in the {} dataset".format(len(d), n))
     train_dataset, valid_dataset, test_dataset = data
-
+    keyword_index = [vocabulary.word_to_id(t) for t in pre_defined_c_tokens | {"CONSTANT", "STRING_LITERAL"}]
+    identifier_index = label_vocabulary.get_label_id("ID") - 1 # zero
 
     loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=PAD_TOKEN)
     model = GrammarLanguageModel(
@@ -457,6 +491,9 @@ def train_and_evaluate(data,
         embedding_dim,
         hidden_state_size,
         rnn_num_layer,
+        identifier_index,
+        keyword_index,
+        terminal_token_index,
         batch_size
     )
     optimizer = optim.SGD(model.parameters(), lr=learning_rate)
@@ -500,13 +537,13 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
-    data = read_parsed_c99_slk_top_down_code()
+    data = read_parsed_c99_slk_top_down_code(True)
     # print(data[0]['code'][0])
-    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 30, "c99_grammar_lm_1.pkl", load_previous_model=False)
+    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 30, "c99_grammar_new_lm_1.pkl", load_previous_model=False)
     #The model c89_grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
-    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 30, "c99_grammar_lm_2.pkl", load_previous_model=False)
+    # train_and_evaluate(data, 16, 200, 200, 3, 0.001, 30, "c99_grammar_new_lm_2.pkl", load_previous_model=False)
     #The model c89_grammar_lm_2.pkl best valid perplexity is 3.062429189682007 and test perplexity is 3.045041799545288
-    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "c99_grammar_lm_3.pkl", load_previous_model=False)
+    # train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "c99_grammar_new_lm_3.pkl", load_previous_model=False)
     #The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
     # monitor = MonitoredParser(lex_optimize=False,
     #                           yacc_debug=True,

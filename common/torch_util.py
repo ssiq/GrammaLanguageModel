@@ -74,3 +74,10 @@ def create_ori_index_to_packed_index_dict(batch_sizes):
             res[(j, i)] = begin_index + j
         begin_index += batch_sizes[i]
     return res
+
+
+def create_stable_log_fn(epsilon):
+    def stable_log(softmax_value):
+        softmax_value = torch.clamp(softmax_value, epsilon, 1.0-epsilon)
+        return torch.log(softmax_value)
+    return stable_log

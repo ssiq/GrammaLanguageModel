@@ -3020,7 +3020,19 @@ def c99_slk_parse(code, clex):
     slk_parser.parse(tokens, action)
     tree = action.parse_tree
     # show_production_node(tree)
-    tokens = [t[0].value for t in clex.tokens_buffer]
+    def get_t(token):
+        t = token.type
+        if t in {'INT_CONST_DEC', 'INT_CONST_OCT', 'INT_CONST_HEX', 'INT_CONST_BIN'}:
+            return "CONSTANT"
+        elif t in {'FLOAT_CONST', 'HEX_FLOAT_CONST'}:
+            return "CONSTANT"
+        elif t in {'CHAR_CONST', 'WCHAR_CONST'}:
+            return "CONSTANT"
+        elif t in {'STRING_LITERAL', 'WSTRING_LITERAL'}:
+            return "STRING_LITERAL"
+        else:
+            return token.value
+    tokens = [get_t(t[0]) for t in clex.tokens_buffer]
     return parse_tree_to_top_down_process(tree), tokens
 
 
@@ -3074,6 +3086,9 @@ class SLKProductionVocabulary(ProductionVocabulary):
 
     def token_num(self):
         return self._slk_constants.START_ACTION - 1
+
+    def terminal_token_num(self):
+        return self._slk_constants.START_SYMBOL - 1
 
     @property
     def EMPTY_id(self):

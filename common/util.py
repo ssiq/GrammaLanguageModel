@@ -358,6 +358,7 @@ def show_process_map(fn, l, print_steps=1000, error_default_value=None):
         try:
             res.append(fn(t))
         except Exception as e:
+            # print(e)
             fail_number += 1
             res.append(error_default_value)
     print("This map use {} seconds".format(time.time()-begin_time))

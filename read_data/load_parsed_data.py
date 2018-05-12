@@ -6,7 +6,7 @@ from toolz.sandbox import unzip
 from c_code_processer.buffered_clex import BufferedCLex
 from c_code_processer.code_util import tokenize, MonitoredParser, parse_tree_to_top_down_process
 from c_code_processer.slk_parser import slk_parse, c99_slk_parse
-from common.constants import CACHE_DATA_PATH
+from common.constants import CACHE_DATA_PATH, pre_defined_c_tokens
 from common.util import disk_cache, show_process_map
 from read_data.read_experiment_data import read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset
 
@@ -60,6 +60,12 @@ def get_vocabulary_id_map():
     return {word: i for i, word in enumerate(word_list)}
 
 
+@disk_cache(basename='get_vocabulary_id_map_with_keyword_moved_literal1', directory=CACHE_DATA_PATH)
+def get_vocabulary_id_map_with_keyword():
+    word_list = sorted(get_token_vocabulary() | set(pre_defined_c_tokens) | {"CONSTANT", "STRING_LITERAL"})
+    return {word: i for i, word in enumerate(word_list)}
+
+
 # @disk_cache(basename="read_parsed_tree_code", directory=CACHE_DATA_PATH)
 def read_parsed_tree_code(debug=False):
     def parse_df(df):
@@ -109,7 +115,7 @@ def read_parsed_slk_top_down_code(debug=False):
     else:
         return [parse_df(df.head(100)) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
 
-@disk_cache(basename="read_parsed_c99_slk_top_down_code", directory=CACHE_DATA_PATH)
+@disk_cache(basename="read_parsed_c99_slk_top_down_code2", directory=CACHE_DATA_PATH)
 def read_parsed_c99_slk_top_down_code(debug=False):
     def parse_df(df):
         clex = BufferedCLex(error_func=lambda self, msg, line, column: None,

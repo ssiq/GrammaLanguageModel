@@ -1,4 +1,6 @@
 import os
+
+from common.util import reverse_dict
 from config import root, scrapyOJ_path, cache_path
 
 # scrapyOJ db path. all OJ data
@@ -35,3 +37,83 @@ langdict = {'GNU C': 1, 'GNU C11': 2, 'GNU C++': 3, 'GNU C++11': 4, 'GNU C++14':
             'FPC': 16, 'Perl': 17, 'PHP': 18, 'Python 2': 19, 'Python 3': 20,
             'PyPy 2': 21, 'PyPy 3': 22, 'Ruby': 23, 'Rust': 24, 'Scala': 25,
             'JavaScript': 26}
+
+keywords = (
+    '_BOOL', '_COMPLEX', 'AUTO', 'BREAK', 'CASE', 'CHAR', 'CONST',
+    'CONTINUE', 'DEFAULT', 'DO', 'DOUBLE', 'ELSE', 'ENUM', 'EXTERN',
+    'FLOAT', 'FOR', 'GOTO', 'IF', 'INLINE', 'INT', 'LONG',
+    'REGISTER', 'OFFSETOF',
+    'RESTRICT', 'RETURN', 'SHORT', 'SIGNED', 'SIZEOF', 'STATIC', 'STRUCT',
+    'SWITCH', 'TYPEDEF', 'UNION', 'UNSIGNED', 'VOID',
+    'VOLATILE', 'WHILE', '__INT128',
+)
+
+keyword_map = {}
+for keyword in keywords:
+    if keyword == '_BOOL':
+        keyword_map['_Bool'] = keyword
+    elif keyword == '_COMPLEX':
+        keyword_map['_Complex'] = keyword
+    else:
+        keyword_map[keyword.lower()] = keyword
+
+keyword_map = reverse_dict(keyword_map)
+
+operator_map = {
+    'PLUS': '+',
+    'MINUS': '-',
+    'TIMES': '*',
+    'DIVIDE': '/',
+    'MOD': '%',
+    'OR': '|',
+    'AND': '&',
+    'NOT': '~',
+    'XOR': '^',
+    'LSHIFT': '<<',
+    'RSHIFT': '>>',
+    'LOR': '||',
+    'LAND': '&&',
+    'LNOT': '!',
+    'LT': '<',
+    'GT': '>',
+    'LE': '<=',
+    'GE': '>=',
+    'EQ': '==',
+    'NE': '!=',
+
+    # Assignment operators
+    'EQUALS': '=',
+    'TIMESEQUAL': '*=',
+    'DIVEQUAL': '/=',
+    'MODEQUAL': '%=',
+    'PLUSEQUAL': '+=',
+    'MINUSEQUAL': '-=',
+    'LSHIFTEQUAL': '<<=',
+    'RSHIFTEQUAL': '>>=',
+    'ANDEQUAL': '&=',
+    'OREQUAL': '|=',
+    'XOREQUAL': '^=',
+
+    # Increment/decrement
+    'PLUSPLUS': '++',
+    'MINUSMINUS': '--',
+
+    # ->
+    'ARROW': '->',
+
+    # ?
+    'CONDOP': '?',
+
+    # Delimeters
+    'LPAREN': '(',
+    'RPAREN': ')',
+    'LBRACKET': '[',
+    'RBRACKET': ']',
+    'COMMA': ',',
+    'PERIOD': '.',
+    'SEMI': ';',
+    'COLON': ':',
+    'ELLIPSIS': '...',
+}
+
+pre_defined_c_tokens = set(keyword_map.values()) | set(operator_map.values())
