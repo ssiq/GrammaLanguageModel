@@ -3,7 +3,8 @@ import sqlite3
 
 from common.util import disk_cache
 from common.constants import CACHE_DATA_PATH, COMPILE_SUCCESS_DATA_DBPATH, C_COMPILE_SUCCESS_RECORDS, langdict, verdict, \
-    COMMON_C_ERROR_RECORDS, FAKE_C_COMPILE_ERROR_DATA_DBPATH, RANDOM_C_ERROR_RECORDS
+    COMMON_C_ERROR_RECORDS, FAKE_C_COMPILE_ERROR_DATA_DBPATH, RANDOM_C_ERROR_RECORDS, TRAIN_DATA_DBPATH, \
+    ACTUAL_C_ERROR_RECORDS
 
 
 def merge_and_deal_submit_table(problems_df, submit_df):
@@ -48,4 +49,11 @@ def read_fake_common_c_error_records():
 def read_fake_random_c_error_records():
     conn = sqlite3.connect('file:{}?mode=ro'.format(FAKE_C_COMPILE_ERROR_DATA_DBPATH), uri=True)
     data_df = read_data(conn, RANDOM_C_ERROR_RECORDS)
+    return data_df
+
+
+@disk_cache(basename='read_train_data_all_c_error_records', directory=CACHE_DATA_PATH)
+def read_train_data_all_c_error_records():
+    conn = sqlite3.connect("file:{}?mode=ro".format(TRAIN_DATA_DBPATH), uri=True)
+    data_df = read_data(conn, ACTUAL_C_ERROR_RECORDS)
     return data_df

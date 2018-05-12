@@ -1,4 +1,6 @@
-from read_data.read_filter_data_records import read_distinct_problem_user_compile_success_c_records
+from read_data.read_filter_data_records import read_distinct_problem_user_compile_success_c_records, \
+    read_distinct_problem_user_fake_c_random_records, read_distinct_problem_user_fake_c_common_records, \
+    read_distinct_problem_user_c_records
 from common.util import disk_cache
 from common.constants import CACHE_DATA_PATH
 from c_code_processer.code_util import extract_include_from_code, remove_include
@@ -50,6 +52,26 @@ def read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset():
         return df
 
     return [remove_include_df(df) for df in read_filtered_distinct_problem_user_ac_c99_code_dataset()]
+
+
+@disk_cache(basename='read_fake_common_c_error_dataset', directory=CACHE_DATA_PATH)
+def read_fake_common_c_error_dataset():
+    test_df = read_distinct_problem_user_c_records()
+    test_df = test_df[test_df['distance'].map(lambda x: 0 < x < 10)]
+    data_df = read_distinct_problem_user_fake_c_common_records()
+    train_df, valid_df = filter_frac(data_df, 0.1)
+    print('train df size: {}, valid df size: {}, test df size: {}'.format(len(train_df), len(valid_df), len(test_df)))
+    return train_df, valid_df, test_df
+
+
+@disk_cache(basename='read_fake_random_c_error_dataset', directory=CACHE_DATA_PATH)
+def read_fake_random_c_error_dataset():
+    test_df = read_distinct_problem_user_c_records()
+    test_df = test_df[test_df['distance'].map(lambda x: 0 < x < 10)]
+    data_df = read_distinct_problem_user_fake_c_random_records()
+    train_df, valid_df = filter_frac(data_df, 0.1)
+    print('train df size: {}, valid df size: {}, test df size: {}'.format(len(train_df), len(valid_df), len(test_df)))
+    return train_df, valid_df, test_df
 
 
 if __name__ == '__main__':

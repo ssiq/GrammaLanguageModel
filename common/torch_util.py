@@ -81,3 +81,14 @@ def create_stable_log_fn(epsilon):
         softmax_value = torch.clamp(softmax_value, epsilon, 1.0-epsilon)
         return torch.log(softmax_value)
     return stable_log
+
+
+
+def padded_tensor_one_dim_to_length(one_tensor, dim, padded_length, is_cuda=False, gpu_index=0, fill_value=0):
+    before_encoder_shape = list(one_tensor.shape)
+    before_encoder_shape[dim] = padded_length - before_encoder_shape[dim]
+    expend_tensor = (torch.ones(before_encoder_shape) * fill_value)
+    if is_cuda:
+        expend_tensor = expend_tensor.cuda(gpu_index)
+    padded_outputs = torch.cat((one_tensor, expend_tensor), dim=dim)
+    return padded_outputs

@@ -603,3 +603,53 @@ class FlatMap(object):
 
 def index_select(seq: typing.List, index: typing.List[int]):
     return [seq[k] for k in index]
+
+
+def filter_token_ids(token_ids, start, end, unk):
+
+    def filter_special_token(token_ids, val):
+        return list(filter(lambda x: x != val, token_ids))
+
+    try:
+        end_position = token_ids.index(end)
+        token_ids = token_ids[:end_position]
+    except ValueError as e:
+        end_position = None
+    token_ids = filter_special_token(token_ids, start)
+    token_ids = filter_special_token(token_ids, end)
+    token_ids = filter_special_token(token_ids, unk)
+    return token_ids, end_position
+
+def convert_one_token_ids_to_code(token_ids, id_to_word_fn, start, end, unk, includes=None):
+    if not isinstance(token_ids, list):
+        token_ids = list(token_ids)
+    token_ids, _ = filter_token_ids(token_ids, start, end, unk)
+    tokens = [id_to_word_fn(tok) for tok in token_ids]
+    code = ' '.join(tokens)
+    for inc in includes:
+        code = (inc + '\n') + code
+    return code
+
+
+def compile_c_code_by_gcc(code, file_path):
+    write_code_to_file(code, file_path)
+    res = os.system('gcc -pedantic-errors -std=gnu99 {} >/dev/null 2>/dev/null'.format(file_path))
+    # res = os.system('gcc -pedantic-errors -std=gnu99 {}'.format(file_path))
+    if res == 0:
+        return True
+    return False
+
+
+def write_code_to_file(code, file_path):
+    file_path = os.path.abspath(file_path)
+    ensure_file_path(file_path)
+    f = open(file_path, 'w')
+    f.write(code)
+    f.flush()
+    f.close()
+    return file_path
+
+
+def ensure_file_path(file_path):
+    if not os.path.exists(os.path.dirname(file_path)):
+        os.makedirs(os.path.dirname(file_path))

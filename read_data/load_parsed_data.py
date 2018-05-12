@@ -4,11 +4,16 @@ import more_itertools
 from toolz.sandbox import unzip
 
 from c_code_processer.buffered_clex import BufferedCLex
-from c_code_processer.code_util import tokenize, MonitoredParser, parse_tree_to_top_down_process
+from c_code_processer.code_util import tokenize, MonitoredParser, parse_tree_to_top_down_process, extract_include, \
+    replace_include_with_blank
 from c_code_processer.slk_parser import slk_parse, c99_slk_parse
 from common.constants import CACHE_DATA_PATH, pre_defined_c_tokens
+from common.constants import CACHE_DATA_PATH
+from common.dataset_util import create_error_tokens_by_operations, create_error_tokens
+from common.parse_util import tokenize_by_clex_fn
 from common.util import disk_cache, show_process_map
-from read_data.read_experiment_data import read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset
+from read_data.read_experiment_data import read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset, \
+    read_fake_random_c_error_dataset, read_fake_common_c_error_dataset
 
 
 def parse_c99_code_to_token(df):
@@ -135,6 +140,72 @@ def read_parsed_c99_slk_top_down_code(debug=False):
     else:
         return [parse_df(df.head(100)) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
 
+@disk_cache(basename="read_random_error_c99_code_tokens_list", directory=CACHE_DATA_PATH)
+def read_random_error_c99_code_tokens_list():
+    print('in read_random_error_c99_code_tokens_list')
+    def parse_df_to_token_list(df):
+        print('start parse df to token list: {}'.format(len(df)))
+        similar_code_without_includes = df['similar_code'].map(replace_include_with_blank)
+        print('after remove include')
+        tokenize_fn = tokenize_by_clex_fn()
+        ac_tokens = similar_code_without_includes.map(tokenize_fn)
+        print('after tokenize ac code')
+        tokens_list = [[tok.value for tok in tokens] for tokens in ac_tokens]
+        return tokens_list
+    return [parse_df_to_token_list(df) for df in read_fake_random_c_error_dataset()]
+
+
+@disk_cache(basename="get_random_error_c99_code_token_vocabulary", directory=CACHE_DATA_PATH)
+def get_random_error_c99_code_token_vocabulary():
+    print('in get_random_error_c99_code_token_vocabulary')
+    train, _, _ = read_random_error_c99_code_tokens_list()
+    print(sorted(list(Counter(more_itertools.flatten(train)).items()), key=lambda x: x)[:10])
+
+    return set(more_itertools.flatten(train))
+
+
+@disk_cache(basename="get_random_error_c99_code_token_vocabulary_id_map", directory=CACHE_DATA_PATH)
+def get_random_error_c99_code_token_vocabulary_id_map():
+    print('in get_random_error_c99_code_token_vocabulary_id_map')
+    word_list = sorted(get_random_error_c99_code_token_vocabulary())
+    return {word: i for i, word in enumerate(word_list)}
+
+
+@disk_cache(basename="read_common_error_c99_code_tokens_list", directory=CACHE_DATA_PATH)
+def read_common_error_c99_code_tokens_list():
+    print('in read_common_error_c99_code_tokens_list')
+    def parse_df_to_token_list(df):
+        print('start parse df to token list: {}'.format(len(df)))
+        similar_code_without_includes = df['similar_code'].map(replace_include_with_blank)
+        print('after remove include')
+        tokenize_fn = tokenize_by_clex_fn()
+        ac_tokens = similar_code_without_includes.map(tokenize_fn)
+        print('after tokenize ac code')
+        tokens_list = [[tok.value for tok in tokens] for tokens in ac_tokens]
+        return tokens_list
+    return [parse_df_to_token_list(df) for df in read_fake_common_c_error_dataset()]
+
+
+@disk_cache(basename="get_common_error_c99_code_token_vocabulary", directory=CACHE_DATA_PATH)
+def get_common_error_c99_code_token_vocabulary():
+    print('in get_common_error_c99_code_token_vocabulary')
+    train, _, _ = read_common_error_c99_code_tokens_list()
+    print(sorted(list(Counter(more_itertools.flatten(train)).items()), key=lambda x: x)[:10])
+
+    return set(more_itertools.flatten(train))
+
+
+@disk_cache(basename="get_common_error_c99_code_token_vocabulary_id_map", directory=CACHE_DATA_PATH)
+def get_common_error_c99_code_token_vocabulary_id_map():
+    print('in get_common_error_c99_code_token_vocabulary_id_map')
+    word_list = sorted(get_common_error_c99_code_token_vocabulary())
+    return {word: i for i, word in enumerate(word_list)}
+
+
+def generate_tokens_for_c_error_dataset(data):
+    return [create_error_tokens(df) for df in data]
+
+
 if __name__ == '__main__':
     # for i in read_filtered_without_include_code_tokens():
     #     # print(i[0][:10])
@@ -142,4 +213,11 @@ if __name__ == '__main__':
     # import sys
     # sys.setrecursionlimit(1000000)
     # read_parsed_tree_code()
-    read_parsed_c99_slk_top_down_code()
+    # read_parsed_c99_slk_top_down_code()
+    # read_random_error_c99_code_tokens_list()
+    # get_random_error_c99_code_token_vocabulary()
+    res = get_random_error_c99_code_token_vocabulary_id_map()
+    # read_common_error_c99_code_tokens_list()
+    # get_common_error_c99_code_token_vocabulary()
+    # res = get_common_error_c99_code_token_vocabulary_id_map()
+    print(len(res.keys()))
