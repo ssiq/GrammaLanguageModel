@@ -369,7 +369,7 @@ def show_process_map(fn, l, print_steps=1000, error_default_value=None):
 @toolz.curry
 def generate_mask(mask_index, size):
     '''
-    :param mask_index: a list of index
+    :param mask_index: a iterable container of index
     :param size: the max size
     :return: a 0-1 mask list with the size shape
     '''

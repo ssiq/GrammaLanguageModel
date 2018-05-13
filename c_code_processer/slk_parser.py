@@ -9,6 +9,8 @@ from c_code_processer.fake_c_header.extract_identifier import extract_fake_c_hea
 from common import util
 import collections
 
+from embedding.wordembedding import Vocabulary, load_vocabulary
+
 
 class SLKConstants(object):
     def __init__(self):
@@ -2706,6 +2708,7 @@ class C99LabelVocabulary(object):
                              "SWITCH": 79, "ELSE": 80, "FOR": 81, "WHILE": 82, "DO": 83, "GOTO": 84,
                              "CONTINUE": 85, "BREAK": 86, "RETURN": 87, "END_OF_SLK_INPUT": 88,
                              }
+        self._id_to_label = util.reverse_dict(self._label_to_id)
         self._id_to_symbol_name_dict = self._create_symbol_name_dict()
         # print("symbol dict:{}".format(self._id_to_symbol_name_dict))
         self._symbol_name_to_id_dict = util.reverse_dict(self._id_to_symbol_name_dict)
@@ -2763,6 +2766,9 @@ class C99LabelVocabulary(object):
             return self._label_to_id["STRING_LITERAL"]
         else:
             raise ValueError("no such label:{}".format(label))
+
+    def get_label_by_id(self, index):
+        return self._id_to_label[index]
 
 class LexTokens(metaclass=abc.ABCMeta):
 
@@ -2930,13 +2936,14 @@ class CAction(Action):
 
 class MoniteredCAction(CAction):
     def __init__(self, slk_constants: SLKConstants, label_vocabulary: LabelVocabulary, lex: InputLexTokens,
-                 predefined_identifier_set, predefined_typename, verbose=False):
+                 predefined_identifier_set, predefined_typename, vocabulary: Vocabulary, verbose=False):
         super().__init__(slk_constants, label_vocabulary, lex, verbose)
         self._new_scope()
-        self._scope[-1]["defined_identifier"] |= set(predefined_identifier_set)
-        self._scope[-1]["typedef_name"] |= set(predefined_typename)
+        self._predefined_identifier_set= predefined_identifier_set
+        self._predefined_typename = predefined_typename
         self._identifier_type_id = self._label_vocabulary.get_symbol_index("IDENTIFIER")
         self._typename_type_id = self._label_vocabulary.get_symbol_index("TYPE_NAME")
+        self._token_vocabulary = vocabulary
         self._identifier_scope_index = [0]
         self._max_scope_list = [1]
         self._consistent_identifier = [self._all_defined_identifier_set()]
@@ -2976,7 +2983,7 @@ class MoniteredCAction(CAction):
         res = set()
         for scope in self._scope:
             res |= scope[key]
-        return res
+        return {self._token_vocabulary.word_to_id(t) for t in res}
 
     def _get_identifier_index(self, identifier_value):
         return self._get_id_index(identifier_value, "defined_identifier")
@@ -2988,6 +2995,12 @@ class MoniteredCAction(CAction):
         for i, scope in enumerate(self._scope):
             if value in scope[key]:
                 return i
+        if key == "typedef_name":
+            if value in self._predefined_typename:
+                return 0
+        elif key == "defined_identifier":
+            if value in self._predefined_identifier_set:
+                return 0
         return -1
 
     def _add_new_identifier(self):
@@ -3141,12 +3154,12 @@ def c99_slk_parse(code, clex):
 
 
 @toolz.curry
-def monitored_slk_parse(code, clex, predefined_identifer, predefined_typename):
+def monitored_slk_parse(code, clex, predefined_identifer, predefined_typename, vocabulary):
     slk_constants = C99SLKConstants()
     label_vocabulary = C99LabelVocabulary(slk_constants)
     clex.input(code)
     tokens = InputLexTokens(clex.tokens_buffer, label_vocabulary, slk_constants)
-    action = MoniteredCAction(slk_constants, label_vocabulary, tokens, predefined_identifer, predefined_typename)
+    action = MoniteredCAction(slk_constants, label_vocabulary, tokens, predefined_identifer, predefined_typename, vocabulary)
     tokens.typedef_lookup_fn = action.type_lookup_fn
     slk_parser = SLKParser(slk_constants, label_vocabulary)
     slk_parser.parse(tokens, action)
@@ -3293,25 +3306,40 @@ if __name__ == '__main__':
                         on_rbrace_func=lambda: None,
                         type_lookup_func=lambda typ: None)
     clex.build()
+    BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
+    from read_data.load_parsed_data import get_vocabulary_id_map_with_keyword, get_token_vocabulary
+    vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map_with_keyword, [BEGIN], [END], UNK)
     # header_identifier_set =  extract_fake_c_header_identifier()
-    tree, _, consistent_identifier, \
+    pre_identifier_set = {"printf"}
+    pre_type_set = {"size_t"}
+    tree, tokens, consistent_identifier, \
            identifier_scope_index, \
            is_identifier, \
            max_scope_list, \
-           consistent_typename = monitored_slk_parse(code, clex, {"printf"}, {"size_t"})
+           consistent_typename = monitored_slk_parse(code, clex, pre_identifier_set, pre_type_set, vocabulary)
     # for t in tree:
     #     print(t)
     # print()
 
-    # print("consistent_identifier")
-    # for t in consistent_identifier:
-    #     print(t)
-    # print()
-    #
-    # print("consistent_typename")
-    # for t in consistent_typename:
-    #     print(t)
-    # print()
+    for t in  [tokens, consistent_identifier, \
+           identifier_scope_index, \
+           is_identifier, \
+           max_scope_list, \
+           consistent_typename]:
+        print(len(t))
+
+    print(pre_identifier_set)
+    print(pre_type_set)
+
+    print("consistent_identifier")
+    for t in consistent_identifier:
+        print(t)
+    print()
+
+    print("consistent_typename")
+    for t in consistent_typename:
+        print(t)
+    print()
     #
     # print("identifier_scope_index")
     # for t in identifier_scope_index:

@@ -1,3 +1,4 @@
+import sys
 from collections import Counter
 
 import more_itertools
@@ -187,7 +188,7 @@ def read_parsed_c99_slk_top_down_code(debug=False):
     else:
         return [parse_df(df.head(100)) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
 
-@disk_cache(basename="read_monitored_parsed_c99_slk_top_down_code", directory=CACHE_DATA_PATH)
+@disk_cache(basename="read_monitored_parsed_c99_slk_top_down_code2", directory=CACHE_DATA_PATH)
 def read_monitored_parsed_c99_slk_top_down_code(debug=False):
     def parse_df(df):
         identifier_set, type_set = extract_fake_c_header_identifier()
@@ -196,7 +197,13 @@ def read_monitored_parsed_c99_slk_top_down_code(debug=False):
                             on_rbrace_func=lambda: None,
                             type_lookup_func=lambda typ: None)
         clex.build()
-        parse_fn = monitored_slk_parse(clex=clex, predefined_identifer=identifier_set, predefined_typename=type_set)
+        BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
+        from embedding.wordembedding import load_vocabulary
+        vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map_with_keyword, [BEGIN], [END], UNK)
+        print("the size of predefined_identifer:{}".format(len(identifier_set)))
+        print("the size of typeset:{}".format(len(type_set)))
+        parse_fn = monitored_slk_parse(clex=clex, predefined_identifer=identifier_set, predefined_typename=type_set,
+                                       vocabulary=vocabulary)
         parsed_code = show_process_map(parse_fn, df['code'],
                                        error_default_value=tuple([None, ] * 7))
         parsed_code = unzip(parsed_code)
@@ -208,6 +215,7 @@ def read_monitored_parsed_c99_slk_top_down_code(debug=False):
         df['max_scope_list'] = list(parsed_code[5])
         df['consistent_typename'] = list(parsed_code[6])
         return df
+
     if not debug:
         return [parse_df(df) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
     else:
@@ -295,4 +303,8 @@ if __name__ == '__main__':
     # get_common_error_c99_code_token_vocabulary()
     # res = get_common_error_c99_code_token_vocabulary_id_map()
     # print(len(res.keys()))
+    # read_parsed_c99_slk_top_down_code()
+    # print("next")
     read_monitored_parsed_c99_slk_top_down_code()
+    # print("ddd")
+    # print(sys.stdin.readline())
