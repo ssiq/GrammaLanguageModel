@@ -1,5 +1,8 @@
 from c_code_processer.buffered_clex import BufferedCLex
+from common.constants import ROOT_PATH
 from common.parse_util import init_pycparser
+
+import os
 
 
 def extract_identifier(code):
@@ -15,7 +18,8 @@ def extract_fake_c_header_identifier():
     file_list = ['math.h', 'stdio.h', 'stdlib.h', 'string.h']
     res = set()
     for fp in file_list:
-        with open(fp) as f:
+        afp = os.path.join(ROOT_PATH, 'c_code_processer', 'fake_c_header', fp)
+        with open(afp) as f:
             text = f.read()
             res |= set(extract_identifier(text))
     return list(res)
