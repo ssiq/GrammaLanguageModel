@@ -36,21 +36,21 @@ extern long int atol (const char *__nptr);
 extern long long int atoll (const char *__nptr);
 
 
-extern double strtod (const char *__restrict __nptr, char **__restrict __endptr);
+extern double strtod (const char * __nptr, char ** __endptr);
 
 
-extern float strtof (const char *__restrict __nptr, char **__restrict __endptr);
+extern float strtof (const char * __nptr, char ** __endptr);
 
-extern long double strtold (const char *__restrict __nptr, char **__restrict __endptr);
+extern long double strtold (const char * __nptr, char ** __endptr);
 
 
-extern long int strtol (const char *__restrict __nptr, char **__restrict __endptr, int __base);
+extern long int strtol (const char * __nptr, char ** __endptr, int __base);
 
-extern unsigned long int strtoul (const char *__restrict __nptr, char **__restrict __endptr, int __base);
+extern unsigned long int strtoul (const char * __nptr, char ** __endptr, int __base);
 
-extern long long int strtoll (const char *__restrict __nptr, char **__restrict __endptr, int __base);
+extern long long int strtoll (const char * __nptr, char ** __endptr, int __base);
 
-extern unsigned long long int strtoull (const char *__restrict __nptr, char **__restrict __endptr, int __base);
+extern unsigned long long int strtoull (const char * __nptr, char ** __endptr, int __base);
 
 extern int rand (void);
 
@@ -111,11 +111,11 @@ extern lldiv_t lldiv (long long int __numer, long long int __denom);
 extern int mblen (const char *__s, size_t __n);
 
 
-extern int mbtowc (wchar_t *__restrict __pwc, const char *__restrict __s, size_t __n);
+extern int mbtowc (wchar_t * __pwc, const char * __s, size_t __n);
 
 
 extern int wctomb (char *__s, wchar_t __wchar);
 
-extern size_t mbstowcs (wchar_t *__restrict __pwcs, const char *__restrict __s, size_t __n);
+extern size_t mbstowcs (wchar_t * __pwcs, const char * __s, size_t __n);
 
-extern size_t wcstombs (char *__restrict __s, const wchar_t *__restrict __pwcs, size_t __n);
+extern size_t wcstombs (char * __s, const wchar_t * __pwcs, size_t __n);

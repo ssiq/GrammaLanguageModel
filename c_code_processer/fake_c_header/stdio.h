@@ -37,7 +37,7 @@ typedef struct
   __mbstate_t __state;
 } _G_fpos_t;
 
-typedef __builtin_va_list __gnuc_va_list;
+typedef void __gnuc_va_list;
 
 typedef void _IO_lock_t;
 
@@ -142,53 +142,53 @@ extern int fclose (FILE *__stream);
 
 extern int fflush (FILE *__stream);
 
-extern FILE *fopen (const char *__restrict __filename, const char *__restrict __modes);
+extern FILE *fopen (const char * __filename, const char * __modes);
 
-extern FILE *freopen (const char *__restrict __filename, const char *__restrict __modes, FILE *__restrict __stream) ;
+extern FILE *freopen (const char * __filename, const char * __modes, FILE * __stream) ;
 
-extern void setbuf (FILE *__restrict __stream, char *__restrict __buf);
+extern void setbuf (FILE * __stream, char * __buf);
 
-extern int setvbuf (FILE *__restrict __stream, char *__restrict __buf, int __modes, size_t __n);
+extern int setvbuf (FILE * __stream, char * __buf, int __modes, size_t __n);
 
-extern int fprintf (FILE *__restrict __stream, const char *__restrict __format, ...);
+extern int fprintf (FILE * __stream, const char * __format, ...);
 
-extern int printf (const char *__restrict __format, ...);
+extern int printf (const char * __format, ...);
 
-extern int sprintf (char *__restrict __s, const char *__restrict __format, ...);
+extern int sprintf (char * __s, const char * __format, ...);
 
-extern int vfprintf (FILE *__restrict __s, const char *__restrict __format, __gnuc_va_list __arg);
+extern int vfprintf (FILE * __s, const char * __format, __gnuc_va_list __arg);
 
-extern int vprintf (const char *__restrict __format, __gnuc_va_list __arg);
+extern int vprintf (const char * __format, __gnuc_va_list __arg);
 
-extern int vsprintf (char *__restrict __s, const char *__restrict __format, __gnuc_va_list __arg);
+extern int vsprintf (char * __s, const char * __format, __gnuc_va_list __arg);
 
-extern int snprintf (char *__restrict __s, size_t __maxlen, const char *__restrict __format, ...);
+extern int snprintf (char * __s, size_t __maxlen, const char * __format, ...);
 
-extern int vsnprintf (char *__restrict __s, size_t __maxlen, const char *__restrict __format, __gnuc_va_list __arg);
+extern int vsnprintf (char * __s, size_t __maxlen, const char * __format, __gnuc_va_list __arg);
 
-extern int fscanf (FILE *__restrict __stream, const char *__restrict __format, ...);
+extern int fscanf (FILE * __stream, const char * __format, ...);
 
-extern int scanf (const char *__restrict __format, ...);
+extern int scanf (const char * __format, ...);
 
-extern int sscanf (const char *__restrict __s, const char *__restrict __format, ...);
+extern int sscanf (const char * __s, const char * __format, ...);
 
-extern int fscanf (FILE *__restrict __stream, const char *__restrict __format, ...);
+extern int fscanf (FILE * __stream, const char * __format, ...);
 
-extern int scanf (const char *__restrict __format, ...);
+extern int scanf (const char * __format, ...);
 
-extern int sscanf (const char *__restrict __s, const char *__restrict __format, ...);
+extern int sscanf (const char * __s, const char * __format, ...);
 
-extern int vfscanf (FILE *__restrict __s, const char *__restrict __format, __gnuc_va_list __arg);
+extern int vfscanf (FILE * __s, const char * __format, __gnuc_va_list __arg);
 
-extern int vscanf (const char *__restrict __format, __gnuc_va_list __arg);
+extern int vscanf (const char * __format, __gnuc_va_list __arg);
 
-extern int vsscanf (const char *__restrict __s, const char *__restrict __format, __gnuc_va_list __arg);
+extern int vsscanf (const char * __s, const char * __format, __gnuc_va_list __arg);
 
-extern int vfscanf (FILE *__restrict __s, const char *__restrict __format, __gnuc_va_list __arg);
+extern int vfscanf (FILE * __s, const char * __format, __gnuc_va_list __arg);
 
-extern int vscanf (const char *__restrict __format, __gnuc_va_list __arg);
+extern int vscanf (const char * __format, __gnuc_va_list __arg);
 
-extern int vsscanf (const char *__restrict __s, const char *__restrict __format, __gnuc_va_list __arg);
+extern int vsscanf (const char * __s, const char * __format, __gnuc_va_list __arg);
 
 extern int fgetc (FILE *__stream);
 
@@ -202,19 +202,19 @@ extern int putc (int __c, FILE *__stream);
 
 extern int putchar (int __c);
 
-extern char *fgets (char *__restrict __s, int __n, FILE *__restrict __stream);
+extern char *fgets (char * __s, int __n, FILE * __stream);
 
-extern char *gets (char *__s) __attribute__ ((__deprecated__));
+extern char *gets (char *__s);
 
-extern int fputs (const char *__restrict __s, FILE *__restrict __stream);
+extern int fputs (const char * __s, FILE * __stream);
 
 extern int puts (const char *__s);
 
 extern int ungetc (int __c, FILE *__stream);
 
-extern size_t fread (void *__restrict __ptr, size_t __size, size_t __n, FILE *__restrict __stream);
+extern size_t fread (void * __ptr, size_t __size, size_t __n, FILE * __stream);
 
-extern size_t fwrite (const void *__restrict __ptr, size_t __size, size_t __n, FILE *__restrict __s);
+extern size_t fwrite (const void * __ptr, size_t __size, size_t __n, FILE * __s);
 
 extern int fseek (FILE *__stream, long int __off, int __whence);
 
@@ -222,7 +222,7 @@ extern long int ftell (FILE *__stream);
 
 extern void rewind (FILE *__stream);
 
-extern int fgetpos (FILE *__restrict __stream, fpos_t *__restrict __pos);
+extern int fgetpos (FILE * __stream, fpos_t * __pos);
 
 extern int fsetpos (FILE *__stream, const fpos_t *__pos);
 
