@@ -537,11 +537,11 @@ if __name__ == '__main__':
     torch.backends.cudnn.fastest = True
     data = read_parsed_c99_slk_top_down_code()
     # print(data[0]['code'][0])
-    train_and_evaluate(data, 16, 100, 100, 3, 0.001, 30, "c99_grammar_new_lm_1.pkl", load_previous_model=False)
+    train_and_evaluate(data, 16, 100, 100, 3, 0.01, 30, "c99_grammar_new_lm_1.pkl", load_previous_model=True)
     #The model c89_grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
-    train_and_evaluate(data, 16, 200, 200, 3, 0.001, 30, "c99_grammar_new_lm_2.pkl", load_previous_model=False)
+    train_and_evaluate(data, 16, 200, 200, 3, 0.01, 30, "c99_grammar_new_lm_2.pkl", load_previous_model=False)
     #The model c89_grammar_lm_2.pkl best valid perplexity is 3.062429189682007 and test perplexity is 3.045041799545288
-    train_and_evaluate(data, 16, 300, 300, 3, 0.001, 40, "c99_grammar_new_lm_3.pkl", load_previous_model=False)
+    train_and_evaluate(data, 16, 300, 300, 3, 0.01, 40, "c99_grammar_new_lm_3.pkl", load_previous_model=False)
     #The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
     # monitor = MonitoredParser(lex_optimize=False,
     #                           yacc_debug=True,

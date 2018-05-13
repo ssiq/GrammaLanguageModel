@@ -6,7 +6,8 @@ from toolz.sandbox import unzip
 from c_code_processer.buffered_clex import BufferedCLex
 from c_code_processer.code_util import tokenize, MonitoredParser, parse_tree_to_top_down_process, extract_include, \
     replace_include_with_blank
-from c_code_processer.slk_parser import slk_parse, c99_slk_parse
+from c_code_processer.fake_c_header.extract_identifier import extract_fake_c_header_identifier
+from c_code_processer.slk_parser import slk_parse, c99_slk_parse, monitored_slk_parse
 from common.constants import CACHE_DATA_PATH, pre_defined_c_tokens, pre_defined_c_tokens_map
 from common.constants import CACHE_DATA_PATH
 from common.dataset_util import create_error_tokens_by_operations, create_error_tokens
@@ -186,6 +187,33 @@ def read_parsed_c99_slk_top_down_code(debug=False):
     else:
         return [parse_df(df.head(100)) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
 
+@disk_cache(basename="read_monitored_parsed_c99_slk_top_down_code", directory=CACHE_DATA_PATH)
+def read_monitored_parsed_c99_slk_top_down_code(debug=False):
+    def parse_df(df):
+        identifier_set, type_set = extract_fake_c_header_identifier()
+        clex = BufferedCLex(error_func=lambda self, msg, line, column: None,
+                            on_lbrace_func=lambda: None,
+                            on_rbrace_func=lambda: None,
+                            type_lookup_func=lambda typ: None)
+        clex.build()
+        parse_fn = monitored_slk_parse(clex=clex, predefined_identifer=identifier_set, predefined_typename=type_set)
+        parsed_code = show_process_map(parse_fn, df['code'],
+                                       error_default_value=tuple([None, ] * 7))
+        parsed_code = unzip(parsed_code)
+        df['parse_tree'] = list(parsed_code[0])
+        df['tokens'] = list(parsed_code[1])
+        df['consistent_identifier'] = list(parsed_code[2])
+        df['identifier_scope_index'] = list(parsed_code[3])
+        df['is_identifier'] = list(parsed_code[4])
+        df['max_scope_list'] = list(parsed_code[5])
+        df['consistent_typename'] = list(parsed_code[6])
+        return df
+    if not debug:
+        return [parse_df(df) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
+    else:
+        return [parse_df(df.head(100)) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
+
+
 @disk_cache(basename="read_random_error_c99_code_tokens_list", directory=CACHE_DATA_PATH)
 def read_random_error_c99_code_tokens_list():
     print('in read_random_error_c99_code_tokens_list')
@@ -262,8 +290,9 @@ if __name__ == '__main__':
     # read_parsed_c99_slk_top_down_code()
     # read_random_error_c99_code_tokens_list()
     # get_random_error_c99_code_token_vocabulary()
-    res = get_random_error_c99_code_token_vocabulary_id_map()
+    # res = get_random_error_c99_code_token_vocabulary_id_map()
     # read_common_error_c99_code_tokens_list()
     # get_common_error_c99_code_token_vocabulary()
     # res = get_common_error_c99_code_token_vocabulary_id_map()
-    print(len(res.keys()))
+    # print(len(res.keys()))
+    read_monitored_parsed_c99_slk_top_down_code()

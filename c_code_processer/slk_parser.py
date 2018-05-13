@@ -5,6 +5,7 @@ import toolz
 from c_code_processer.buffered_clex import BufferedCLex
 from c_code_processer.code_util import LeafParseNode, ProductionNode, Production, parse_tree_to_top_down_process, \
     ProductionVocabulary, show_production_node
+from c_code_processer.fake_c_header.extract_identifier import extract_fake_c_header_identifier
 from common import util
 import collections
 
@@ -2864,6 +2865,7 @@ class CAction(Action):
             3: self._new_scope,
             4: self._release_scope,
         }
+        self._token_value_list = []
 
     def predict(self, production_number):
         production = self._label_vocabulary.get_production(production_number)
@@ -2894,6 +2896,10 @@ class CAction(Action):
         node = self._terminal_stack.pop()
         assert node.type_id == token, "expect_type_id:{}, true type:{}".format(node.type_id, token)
         node.value = value
+        self._token_value_list.append(value)
+
+    def _last_value(self):
+        return self._token_value_list[-1]
 
     def type_lookup_fn(self, v):
         for scope in reversed(self._scope):
@@ -2906,10 +2912,10 @@ class CAction(Action):
         pass
 
     def _set_typedef_name(self):
-        self._scope[-1]["typedef_name"].add(self._lex.last_token_value())
+        self._scope[-1]["typedef_name"].add(self._last_value())
 
     def _new_scope(self):
-        self._scope.append({"typedef_name": {}})
+        self._scope.append({"typedef_name": set()})
 
     def _release_scope(self):
         self._scope.pop()
@@ -2920,6 +2926,104 @@ class CAction(Action):
     @property
     def parse_tree(self):
         return self._root_node
+
+
+class MoniteredCAction(CAction):
+    def __init__(self, slk_constants: SLKConstants, label_vocabulary: LabelVocabulary, lex: InputLexTokens,
+                 predefined_identifier_set, predefined_typename, verbose=False):
+        super().__init__(slk_constants, label_vocabulary, lex, verbose)
+        self._new_scope()
+        self._scope[-1]["defined_identifier"] |= set(predefined_identifier_set)
+        self._scope[-1]["typedef_name"] |= set(predefined_typename)
+        self._identifier_type_id = self._label_vocabulary.get_symbol_index("IDENTIFIER")
+        self._typename_type_id = self._label_vocabulary.get_symbol_index("TYPE_NAME")
+        self._identifier_scope_index = [0]
+        self._max_scope_list = [1]
+        self._consistent_identifier = [self._all_defined_identifier_set()]
+        self._consistent_typename = [self._all_defined_typename_set()]
+        self._is_identifier = [0]
+
+    @property
+    def identifier_scope_index(self):
+        return self._identifier_scope_index
+
+    @property
+    def max_scope_list(self):
+        return self._max_scope_list
+
+    @property
+    def consistent_identifier(self):
+        return self._consistent_identifier
+
+    @property
+    def is_identifier(self):
+        return self._is_identifier
+
+    @property
+    def consistent_typename(self):
+        return self._consistent_typename
+
+    def _new_scope(self):
+        self._scope.append({"typedef_name": set(), "defined_identifier": set()})
+
+    def _all_defined_identifier_set(self):
+        return self._all_defined_id("defined_identifier")
+
+    def _all_defined_typename_set(self):
+        return self._all_defined_id("typedef_name")
+
+    def _all_defined_id(self, key):
+        res = set()
+        for scope in self._scope:
+            res |= scope[key]
+        return res
+
+    def _get_identifier_index(self, identifier_value):
+        return self._get_id_index(identifier_value, "defined_identifier")
+
+    def _get_typename_index(self, typename_value):
+        return self._get_id_index(typename_value, "typedef_name")
+
+    def _get_id_index(self, value, key):
+        for i, scope in enumerate(self._scope):
+            if value in scope[key]:
+                return i
+        return -1
+
+    def _add_new_identifier(self):
+        identifier_value = self._last_value()
+        identifier_index = self._get_identifier_index(identifier_value)
+        if identifier_index == -1:
+            self._scope[-1]["defined_identifier"].add(identifier_value)
+            identifier_index = len(self._scope) - 1
+        self._identifier_scope_index.append(identifier_index)
+
+    def _set_typedef_name(self):
+        super()._set_typedef_name()
+        typename = self._last_value()
+        self._scope[-1]["defined_identifier"].remove(typename)
+        self._consistent_identifier[-1] = self._all_defined_identifier_set()
+        self._consistent_typename[-1] = self._all_defined_typename_set()
+        self._identifier_scope_index[-1] = len(self._scope) - 1
+
+    def match_terminal_value(self, token, value):
+        super().match_terminal_value(token, value)
+        # print("token:{}. identifier_id:{}, typename_type_id:{}".format(token,
+        #                                                                self._identifier_type_id,
+        #                                                                self._typename_type_id))
+        if token == self._identifier_type_id:
+            self._add_new_identifier()
+            self._is_identifier.append(1)
+        elif token == self._typename_type_id:
+            identifier_value = self._last_value()
+            self._identifier_scope_index.append(self._get_typename_index(identifier_value))
+            self._is_identifier.append(1)
+        else:
+            self._is_identifier.append(0)
+            self._identifier_scope_index.append(0)
+        self._consistent_identifier.append(self._all_defined_identifier_set())
+        self._consistent_typename.append(self._all_defined_typename_set())
+        self._max_scope_list.append(len(self._scope))
 
 
 class SLKParser(object):
@@ -3036,6 +3140,47 @@ def c99_slk_parse(code, clex):
     return parse_tree_to_top_down_process(tree), tokens
 
 
+@toolz.curry
+def monitored_slk_parse(code, clex, predefined_identifer, predefined_typename):
+    slk_constants = C99SLKConstants()
+    label_vocabulary = C99LabelVocabulary(slk_constants)
+    clex.input(code)
+    tokens = InputLexTokens(clex.tokens_buffer, label_vocabulary, slk_constants)
+    action = MoniteredCAction(slk_constants, label_vocabulary, tokens, predefined_identifer, predefined_typename)
+    tokens.typedef_lookup_fn = action.type_lookup_fn
+    slk_parser = SLKParser(slk_constants, label_vocabulary)
+    slk_parser.parse(tokens, action)
+    tree = action.parse_tree
+
+    # show_production_node(tree)
+    def get_t(token):
+        t = token.type
+        if t in {'INT_CONST_DEC', 'INT_CONST_OCT', 'INT_CONST_HEX', 'INT_CONST_BIN'}:
+            return "CONSTANT"
+        elif t in {'FLOAT_CONST', 'HEX_FLOAT_CONST'}:
+            return "CONSTANT"
+        elif t in {'CHAR_CONST', 'WCHAR_CONST'}:
+            return "CONSTANT"
+        elif t in {'STRING_LITERAL', 'WSTRING_LITERAL'}:
+            return "STRING_LITERAL"
+        else:
+            return token.value
+
+    tokens = [get_t(t[0]) for t in clex.tokens_buffer]
+    consistent_identifier = action.consistent_identifier
+    identifier_scope_index = action.identifier_scope_index
+    is_identifier = action.is_identifier
+    max_scope_list = action.max_scope_list
+    consistent_typename = action.consistent_typename
+    return parse_tree_to_top_down_process(tree), \
+           tokens, \
+           consistent_identifier, \
+           identifier_scope_index, \
+           is_identifier, \
+           max_scope_list, \
+           consistent_typename
+
+
 class SLKProductionVocabulary(ProductionVocabulary):
     def __init__(self, slk_constants):
         self._slk_constants = slk_constants
@@ -3116,38 +3261,70 @@ class SLKProductionVocabulary(ProductionVocabulary):
 
 
 if __name__ == '__main__':
-    code = ''' 
-     int max(int a,int b){ 
-     if (a>b)return a; 
-     else return b;} 
-    int main(void) { 
-     int n,a,b,c, i; 
-     int da[n+1]; 
-     scanf( "%d %d %d %d" ,&n,&a,&b,&c); 
-     for(i=0;i<=n;i++){ 
-     da[i]=0; 
-     } 
-     for(i=1;i<=n;i++){ 
-     int x=-1,y=-1,z=-1; 
-     if(i>a){ 
-     x=da[i-a]; 
-     } 
-     if(i>b){ 
-     y=da[i-b]; 
-     } 
-     if(i>c){ 
-     y=da[i-c]; 
-     } 
-     da[i]=max(max(x,y),z)+1; 
-     } 
-     printf( "%d" ,da[1]); 
-     return 0; 
+    code = '''
+     int max(int a,int b){
+     if (a>b)return a;
+     else return b;}
+     typedef int my_type;
+    int main(void) {
+     int n,a,b,c, i;
+     int da[n+1];
+     scanf( "%d %d %d %d" ,&n,&a,&b,&c);
+     for(i=1;i<=n;i++){
+     int x=-1,y=-1,z=-1;
+     if(i>c){
+     y=da[i-c];
+     }
+     da[i]=max(max(x,y),z)+1;
+     }
+     printf( "%d" ,da[1]);
+     return 0;
     }'''
+
+    # code = """
+    # int add(int a, int b)
+    # {
+    #     return a+b;
+    # }
+    # """
+
     clex = BufferedCLex(error_func=lambda self, msg, line, column: None,
                         on_lbrace_func=lambda: None,
                         on_rbrace_func=lambda: None,
                         type_lookup_func=lambda typ: None)
     clex.build()
-    tree, _ =c99_slk_parse(code, clex)
-    for t in tree:
-        print(t)
+    # header_identifier_set =  extract_fake_c_header_identifier()
+    tree, _, consistent_identifier, \
+           identifier_scope_index, \
+           is_identifier, \
+           max_scope_list, \
+           consistent_typename = monitored_slk_parse(code, clex, {"printf"}, {"size_t"})
+    # for t in tree:
+    #     print(t)
+    # print()
+
+    # print("consistent_identifier")
+    # for t in consistent_identifier:
+    #     print(t)
+    # print()
+    #
+    # print("consistent_typename")
+    # for t in consistent_typename:
+    #     print(t)
+    # print()
+    #
+    # print("identifier_scope_index")
+    # for t in identifier_scope_index:
+    #     print(t)
+    # print()
+    #
+    # print("is_identifier")
+    # for t in is_identifier:
+    #     print(t)
+    # print()
+    #
+    # print("max_scope_list")
+    # for t in max_scope_list:
+    #     print(t)
+    # print()
+
