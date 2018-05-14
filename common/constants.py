@@ -114,6 +114,9 @@ operator_map = {
     'SEMI': ';',
     'COLON': ':',
     'ELLIPSIS': '...',
+
+    'LBRACE': '{',
+    'RBRACE': '}',
 }
 
 pre_defined_c_tokens = set(keyword_map.values()) | set(operator_map.values())
