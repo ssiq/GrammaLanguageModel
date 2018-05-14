@@ -3232,9 +3232,10 @@ class SLKProductionVocabulary(ProductionVocabulary):
             return self._confilict_compact_dicct[entry]
         else:
             res = set()
+            assert entry - (self._slk_constants.START_CONFLICT - 1) >= 0
             index = self._slk_constants.conflict_row[entry - (self._slk_constants.START_CONFLICT - 1)]
             for i in range(1, self._slk_constants.START_SYMBOL):
-                r = self._slk_constants.parse_table[index + i]
+                r = self._slk_constants.conflict_table[index + i]
                 if r == 0:
                     pass
                 else:

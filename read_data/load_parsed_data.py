@@ -115,6 +115,7 @@ def get_vocabulary_id_map_with_keyword():
             keyword_id_map[k] = index
             index += 1
     word_list = sorted(set(get_token_vocabulary()) - set(keyword_id_set))
+    print("identifier index begin:{}".format(index))
     word_map = {word: i for i, word in enumerate(word_list, start=len(keyword_id_map))}
     return {**keyword_id_map, **word_map}
 

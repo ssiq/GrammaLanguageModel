@@ -8,6 +8,9 @@ from multiprocessing import Pool
 import typing
 import hashlib
 
+import copy
+from typing import Iterator
+
 import more_itertools
 import sklearn
 import pandas as pd
@@ -373,9 +376,13 @@ def generate_mask(mask_index, size):
     :param size: the max size
     :return: a 0-1 mask list with the size shape
     '''
-    res = [0] * size
+    res = MaskList(size, 0)
     for i in mask_index:
-        res[i] = 1
+        if isinstance(i, int):
+            res.set_mask(i)
+        elif isinstance(i, tuple):
+            res.set_mask(i[0], i[1])
+    res.sort()
     return res
 
 
@@ -574,6 +581,11 @@ def key_transform(transform, *key, ):
     return transform_fn
 
 
+class CopyMap(object):
+    def __call__(self, sample):
+        return copy.copy(sample)
+
+
 class IsNone(object):
     def __init__(self, name):
         self._name = name
@@ -653,3 +665,57 @@ def write_code_to_file(code, file_path):
 def ensure_file_path(file_path):
     if not os.path.exists(os.path.dirname(file_path)):
         os.makedirs(os.path.dirname(file_path))
+
+class MaskList(collections.Sequence):
+    def __init__(self, length, default_value):
+        self._length = length
+        self._default_value = default_value
+        self._mask_segment = []
+
+    def __getitem__(self, i: int):
+        for a, b in self._mask_segment:
+            if a <= i <= b:
+                return 1 - self._default_value
+        return self._default_value
+
+    def __len__(self) -> int:
+        return self._length
+
+    def __iter__(self):
+        mask_index = 0
+        for i in range(len(self)):
+            while True:
+                if mask_index >= len(self._mask_segment):
+                    yield self._default_value
+                    break
+                elif i < self._mask_segment[mask_index][0]:
+                    yield self._default_value
+                    break
+                elif self._mask_segment[mask_index][0] <= i <= self._mask_segment[mask_index][1]:
+                    yield 1 - self._default_value
+                    break
+                elif i > self._mask_segment[mask_index][1]:
+                    mask_index += 1
+                    continue
+
+
+    def set_mask(self, begin, end=None):
+        if end is None:
+            end = begin
+        self._mask_segment.append((begin, end))
+
+    def flip(self):
+        self._default_value = 1 - self._default_value
+        return self
+
+    def sort(self):
+        self._mask_segment = sorted(self._mask_segment, key=lambda x: x[0])
+        return self
+
+    def __eq__(self, other):
+        if len(self) != len(other):
+            return False
+        for a, b in zip(self, other):
+            if a != b:
+                return False
+        return True
