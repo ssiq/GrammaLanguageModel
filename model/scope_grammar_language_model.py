@@ -562,6 +562,8 @@ def evaluate(model,
 
 
 def train_and_evaluate(data,
+                       keyword_num,
+                       vocabulary,
                        batch_size,
                        embedding_dim,
                        hidden_state_size,
@@ -572,31 +574,6 @@ def train_and_evaluate(data,
                        stack_size,
                        load_previous_model=False):
     save_path = os.path.join(config.save_model_root, saved_name)
-    for d, n in zip(data, ["train", "val", "test"]):
-        print("There are {} raw data in the {} dataset".format(len(d), n))
-    vocabulary, keyword_num = load_keyword_identifier_split_vocabulary(get_token_vocabulary, [BEGIN], [END], UNK)
-    print("vocab_size:{}".format(vocabulary.vocabulary_size))
-    print("The max token id:{}".format(max(vocabulary.word_to_id_dict.values())))
-
-    slk_constants = C99SLKConstants()
-    # terminal_token_index = set(range(slk_constants.START_SYMBOL-2)) - {63, 64}
-    label_vocabulary = C99LabelVocabulary(slk_constants)
-    production_vocabulary = SLKProductionVocabulary(slk_constants)
-    transforms_fn = transforms.Compose([
-        # IsNone("original"),
-        CopyMap(),
-        key_transform(RangeMaskMap(stack_size), "max_scope_list"),
-        key_transform(IndexMaskMap(stack_size), "identifier_scope_index"),
-        key_transform(GrammarLanguageModelTypeInputMap(production_vocabulary, vocabulary, label_vocabulary, keyword_num),
-                      "tree", "target"),
-        # IsNone("after type input"),
-        FlatMap(),
-        # IsNone("Flat Map"),
-        PadMap(keyword_num, stack_size),
-        # IsNone("Pad Map"),
-    ])
-    generate_dataset = lambda df: CCodeDataSet(df, vocabulary, stack_size, transforms_fn)
-    data = [generate_dataset(d) for d in data]
     # for d in data:
     #     def get_i(i):
     #         return d[i]
@@ -656,18 +633,51 @@ def train_and_evaluate(data,
     print("use time {} seconds".format(time.time() - begin_time))
 
 
+def transform_data_from_df_to_dataset(data, stack_size):
+    for d, n in zip(data, ["train", "val", "test"]):
+        print("There are {} raw data in the {} dataset".format(len(d), n))
+    vocabulary, keyword_num = load_keyword_identifier_split_vocabulary(get_token_vocabulary, [BEGIN], [END], UNK)
+    print("vocab_size:{}".format(vocabulary.vocabulary_size))
+    print("The max token id:{}".format(max(vocabulary.word_to_id_dict.values())))
+    slk_constants = C99SLKConstants()
+    # terminal_token_index = set(range(slk_constants.START_SYMBOL-2)) - {63, 64}
+    label_vocabulary = C99LabelVocabulary(slk_constants)
+    production_vocabulary = SLKProductionVocabulary(slk_constants)
+    transforms_fn = transforms.Compose([
+        # IsNone("original"),
+        CopyMap(),
+        key_transform(RangeMaskMap(stack_size), "max_scope_list"),
+        key_transform(IndexMaskMap(stack_size), "identifier_scope_index"),
+        key_transform(
+            GrammarLanguageModelTypeInputMap(production_vocabulary, vocabulary, label_vocabulary, keyword_num),
+            "tree", "target"),
+        # IsNone("after type input"),
+        FlatMap(),
+        # IsNone("Flat Map"),
+        PadMap(keyword_num, stack_size),
+        # IsNone("Pad Map"),
+    ])
+    generate_dataset = lambda df: CCodeDataSet(df, vocabulary, stack_size, transforms_fn)
+    data = [generate_dataset(d) for d in data]
+    return data, keyword_num, vocabulary
+
+
 if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
     data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name()
+    stack_size = 10
+    data, keyword_num, vocabulary = transform_data_from_df_to_dataset(data, stack_size)
     # print(data[0]['code'][0])
-    train_and_evaluate(data, 16, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl", 10,
+    train_and_evaluate(data, keyword_num, vocabulary, 16, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
+                       stack_size,
                        load_previous_model=False)
     # The model c89_grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
-    train_and_evaluate(data, 16, 200, 200, 3, 0.01, 50, "scope_grammar_language_model_2.pkl", 10,
+    train_and_evaluate(data, keyword_num, vocabulary, 16, 200, 200, 3, 0.01, 50, "scope_grammar_language_model_2.pkl",
+                       stack_size,
                        load_previous_model=False)
     # The model c89_grammar_lm_2.pkl best valid perplexity is 3.062429189682007 and test perplexity is 3.045041799545288
-    train_and_evaluate(data, 16, 300, 300, 3, 0.01, 50, "scope_grammar_language_model_3.pkl", 10,
-                       load_previous_model=False)
+    train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 3, 0.01, 50, "scope_grammar_language_model_3.pkl",
+                       stack_size, load_previous_model = False)
     # The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
