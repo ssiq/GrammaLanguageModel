@@ -369,6 +369,25 @@ def show_process_map(fn, l, print_steps=1000, error_default_value=None):
     return res
 
 
+def inplace_show_process_map(fn, l, print_steps=1000, error_default_value=None):
+    begin_time = time.time()
+    fail_number = 0
+    for i, t in enumerate(l):
+        if i % print_steps == 0:
+            print("{}/{} finished".format(i, len(l)))
+            print("{}/{} data map failed".format(fail_number, len(l)))
+        try:
+            res = fn(t)
+        except Exception as e:
+            # print(e)
+            fail_number += 1
+            res = error_default_value
+        l[i] = res
+    print("This map use {} seconds".format(time.time() - begin_time))
+    print("{}/{} data map failed".format(fail_number, len(l)))
+    return l
+
+
 @toolz.curry
 def generate_mask(mask_index, size):
     '''
