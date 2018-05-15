@@ -78,10 +78,10 @@ class CCodeDataSet(Dataset):
     #     self._samples = list(filter(lambda x: x is not None, self._samples))
 
     def __getitem__(self, index):
-        # if self.transform:
-        #     return self.transform(self._samples[index])
-        # else:
-        return self._samples[index]
+        if self.transform:
+            return self.transform(self._samples[index])
+        else:
+            return self._samples[index]
 
     def __len__(self):
         return len(self._samples)
