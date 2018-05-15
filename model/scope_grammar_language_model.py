@@ -24,7 +24,8 @@ from common.constants import pre_defined_c_tokens_map
 from common.util import show_process_map, generate_mask, padded_to_length, key_transform, FlatMap, data_loader, CopyMap
 from embedding.wordembedding import Vocabulary, load_vocabulary, load_keyword_identifier_split_vocabulary
 from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map_with_keyword, \
-    read_monitored_parsed_c99_slk_top_down_code, load_positioned_keyword_identifier_split_vocabulary
+    read_monitored_parsed_c99_slk_top_down_code, load_positioned_keyword_identifier_split_vocabulary, \
+    read_monitored_parsed_c99_slk_top_down_code_without_consistent_name
 
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 PAD_TOKEN = -1
@@ -50,7 +51,8 @@ class CCodeDataSet(Dataset):
             try:
                 self.transform(sample)
                 return True
-            except Exception:
+            except Exception as e:
+                print(e)
                 return False
         if self.transform:
             self._samples = list(filter(error_filter, self._samples))
@@ -66,11 +68,11 @@ class CCodeDataSet(Dataset):
         sample = {"tree": index_located_tuple["parse_tree"],
                   "tokens": tokens[:-1],
                   "target": tokens[1:],
-                  "consistent_identifier": index_located_tuple['consistent_identifier'],
+                  # "consistent_identifier": index_located_tuple['consistent_identifier'],
                   "identifier_scope_index": index_located_tuple['identifier_scope_index'],
                   "is_identifier": index_located_tuple['is_identifier'],
                   'max_scope_list': index_located_tuple['max_scope_list'],
-                  'consistent_typename': index_located_tuple['consistent_typename'],
+                  # 'consistent_typename': index_located_tuple['consistent_typename'],
                   "length": len(tokens) - 1}
         return sample
 
@@ -117,7 +119,7 @@ class GrammarLanguageModelTypeInputMap(object):
         self._identifier_index = (IDENTIFIER_BEGIN_INDEX, token_vocabulary.vocabulary_size-1)
         self._keyword_num = keyword_num
 
-    def _generate_terminal_mask(self, terminal_label_index, consistent_identifier, consistent_typename):
+    def _generate_terminal_mask(self, terminal_label_index,):
         size = self._keyword_num
         token_index_set = set()
         keyword_map = pre_defined_c_tokens_map
@@ -140,13 +142,12 @@ class GrammarLanguageModelTypeInputMap(object):
 
     def __call__(self, sample):
         """
-        :param sample: a dict {"tree": a list of node, "consistent_identifier": consistent identifier string list,
-        "consistent_typename": consistent typename string}
+        :param sample: a dict {"tree": a list of node, }
         :return: a dict of list {'to_parse_token', 'terminal_mask'}
         """
         # print()
-        consistent_identifier = sample["consistent_identifier"]
-        consistent_typename = sample["consistent_typename"]
+        # consistent_identifier = sample["consistent_identifier"]
+        # consistent_typename = sample["consistent_typename"]
         target = sample['target']
         target_string = [self._token_vocabulary.id_to_word(t) for t in target]
         sample = sample["tree"]
@@ -226,8 +227,8 @@ class GrammarLanguageModelTypeInputMap(object):
                 # print("target {} use get matched".format(self._token_vocabulary.id_to_word(t)))
                 terminal_mask_index.append(get_matched_terminal_index(token))
 
-        terminal_mask = [self._generate_terminal_mask(index, a, b) for index, a, b in
-                         zip(terminal_mask_index, consistent_identifier, consistent_typename)]
+        terminal_mask = [self._generate_terminal_mask(index) for index in
+                         terminal_mask_index ]
         from toolz.sandbox import unzip
         terminal_mask, has_identifier = unzip(terminal_mask)
         terminal_mask = list(terminal_mask)
@@ -586,7 +587,7 @@ def train_and_evaluate(data,
         key_transform(RangeMaskMap(stack_size), "max_scope_list"),
         key_transform(IndexMaskMap(stack_size), "identifier_scope_index"),
         key_transform(GrammarLanguageModelTypeInputMap(production_vocabulary, vocabulary, label_vocabulary, keyword_num),
-                      "tree", "consistent_identifier", "consistent_typename", "target"),
+                      "tree", "target"),
         # IsNone("after type input"),
         FlatMap(),
         # IsNone("Flat Map"),
@@ -658,7 +659,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
-    data = read_monitored_parsed_c99_slk_top_down_code(True)
+    data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name(True)
     # print(data[0]['code'][0])
     train_and_evaluate(data, 16, 100, 100, 3, 0.01, 5, "scope_grammar_language_model_test.pkl", 10,
                        load_previous_model=False)

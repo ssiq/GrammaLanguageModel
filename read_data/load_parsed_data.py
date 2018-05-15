@@ -299,7 +299,7 @@ def generate_tokens_for_c_error_dataset(data):
     return [create_error_tokens(df) for df in data]
 
 
-@disk_cache(basename="load_positioned_keyword_identifier_split_vocabulary", directory=CACHE_DATA_PATH)
+@disk_cache(basename="load_positioned_keyword_identifier_split_vocabulary2", directory=CACHE_DATA_PATH)
 def load_positioned_keyword_identifier_split_vocabulary(begin_tokens, end_tokens, unk_token):
     keyword_map = pre_defined_c_tokens_map
     keyword_set = sorted(set(keyword_map.values()))
@@ -313,8 +313,8 @@ def load_positioned_keyword_identifier_split_vocabulary(begin_tokens, end_tokens
         vocabulary_map[t] = len(vocabulary_map)
     for t in {"CONSTANT", "STRING_LITERAL"}:
         vocabulary_map[t] = len(vocabulary_map)
-    vocabulary_map[unk_token] = len(vocabulary_map)
     keyword_index = len(vocabulary_map)
+    vocabulary_map[unk_token] = len(vocabulary_map)
     for v in vocabulary:
         if v not in vocabulary_map:
             vocabulary_map[v] = len(vocabulary_map)
