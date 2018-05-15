@@ -5,6 +5,7 @@ import numpy
 import numpy as np
 
 from common import util
+from common.constants import pre_defined_c_tokens_map
 
 
 class Vocabulary(object):
@@ -13,16 +14,18 @@ class Vocabulary(object):
                  word_to_id_dict: dict,
                  begin_tokens,
                  end_tokens,
-                 unk_token):
+                 unk_token,
+                 add_position_to_dict=True):
         self.unk = unk_token
         self.begin_tokens = begin_tokens
         self.end_tokens = end_tokens
-        position_tokens = set(begin_tokens)
-        position_tokens |= set(end_tokens)
-        position_tokens |= {unk_token}
-        self.word_set = word_set | position_tokens
-        for token in sorted(position_tokens):
-            word_to_id_dict[token] = len(word_to_id_dict)
+        if add_position_to_dict:
+            position_tokens = set(begin_tokens)
+            position_tokens |= set(end_tokens)
+            position_tokens |= {unk_token}
+            self.word_set = word_set | position_tokens
+            for token in sorted(position_tokens):
+                word_to_id_dict[token] = len(word_to_id_dict)
         self.word_to_id_dict = word_to_id_dict
         self.id_to_word_dict = util.reverse_dict(self.word_to_id_dict)
 
@@ -61,3 +64,23 @@ class Vocabulary(object):
 
 def load_vocabulary(load_vocabulary_fn, load_vocabulary_id_dict, begin_tokens ,end_tokens, unk_token) -> Vocabulary:
     return Vocabulary(load_vocabulary_fn(), load_vocabulary_id_dict(), begin_tokens, end_tokens, unk_token)
+
+def load_keyword_identifier_split_vocabulary(load_vocabulary_fn, begin_tokens, end_tokens, unk_token):
+    keyword_map = pre_defined_c_tokens_map
+    keyword_set = sorted(set(keyword_map.values()))
+    vocabulary = load_vocabulary_fn()
+    vocabulary_map = {}
+    for keyword in keyword_set:
+        vocabulary_map[keyword] = len(vocabulary_map)
+    for t in begin_tokens:
+        vocabulary_map[t] = len(vocabulary_map)
+    for t in end_tokens:
+        vocabulary_map[t] = len(vocabulary_map)
+    for t in {"CONSTANT", "STRING_LITERAL"}:
+        vocabulary_map[t] = len(vocabulary_map)
+    vocabulary_map[unk_token] = len(vocabulary_map)
+    keyword_index = len(vocabulary_map)
+    for v in vocabulary:
+        if v not in vocabulary_map:
+            vocabulary_map[v] = len(vocabulary_map)
+    return Vocabulary(vocabulary, vocabulary_map, begin_tokens, end_tokens, unk_token, False), keyword_index

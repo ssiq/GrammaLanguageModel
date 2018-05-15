@@ -22,7 +22,7 @@ from c_code_processer.slk_parser import SLKProductionVocabulary, C99LabelVocabul
 from common import torch_util, util
 from common.constants import pre_defined_c_tokens_map
 from common.util import show_process_map, generate_mask, padded_to_length, key_transform, FlatMap, data_loader, CopyMap
-from embedding.wordembedding import Vocabulary, load_vocabulary
+from embedding.wordembedding import Vocabulary, load_vocabulary, load_keyword_identifier_split_vocabulary
 from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map_with_keyword, \
     read_monitored_parsed_c99_slk_top_down_code
 
@@ -46,8 +46,15 @@ class CCodeDataSet(Dataset):
 
         self._samples = [self._get_raw_sample(i) for i in range(len(self.data_df))]
         self._samples = list(filter(lambda x: max(x['max_scope_list']) <= stack_size, self._samples))
+        def error_filter(sample):
+            try:
+                self.transform(sample)
+                return True
+            except Exception:
+                return False
         if self.transform:
-            self._samples = show_process_map(self.transform, self._samples)
+            self._samples = list(filter(error_filter, self._samples))
+            # self._samples = show_process_map(self.transform, self._samples, error_default_value=None)
         # for s in self._samples:
         #     for k, v in s.items():
         #         print("{}:shape {}".format(k, np.array(v).shape))
@@ -68,10 +75,10 @@ class CCodeDataSet(Dataset):
         return sample
 
     def __getitem__(self, index):
-        # if self.transform:
-        #     return self.transform(self._samples[index])
-        # else:
-        return self._samples[index]
+        if self.transform:
+            return self.transform(self._samples[index])
+        else:
+            return self._samples[index]
 
     def __len__(self):
         return len(self._samples)
@@ -98,7 +105,8 @@ class GrammarLanguageModelTypeInputMap(object):
     def __init__(self,
                  production_vocabulary: SLKProductionVocabulary,
                  token_vocabulary: Vocabulary,
-                 label_vocabulary: C99LabelVocabulary):
+                 label_vocabulary: C99LabelVocabulary,
+                 keyword_num):
         self._production_vocabulary = production_vocabulary
         self._token_vocabulary = token_vocabulary
         self._label_vocabulary = label_vocabulary
@@ -107,18 +115,19 @@ class GrammarLanguageModelTypeInputMap(object):
         self._c_header_type = {token_vocabulary.word_to_id(t) for t in self._c_header_type}
         keyword_map = pre_defined_c_tokens_map
         self._identifier_index = (IDENTIFIER_BEGIN_INDEX, token_vocabulary.vocabulary_size-1)
+        self._keyword_num = keyword_num
 
     def _generate_terminal_mask(self, terminal_label_index, consistent_identifier, consistent_typename):
-        size = self._token_vocabulary.vocabulary_size
+        size = self._keyword_num
         token_index_set = set()
         keyword_map = pre_defined_c_tokens_map
+        has_identifer = 0
         for t in terminal_label_index:
             token_str = self._label_vocabulary.get_label_by_id(t)
             if token_str == "ID":
-                token_index_set.add(self._identifier_index)
+                has_identifer = 1
             elif token_str == "TYPEID":
-                for idt in consistent_typename | self._c_header_type:
-                    token_index_set.add(idt)
+                has_identifer = 1
             elif token_str == "IMAGINARY_":
                 pass
             elif token_str == "END_OF_SLK_INPUT":
@@ -127,7 +136,7 @@ class GrammarLanguageModelTypeInputMap(object):
                 token_index_set.add(self._token_vocabulary.word_to_id(token_str))
             else:
                 token_index_set.add(self._token_vocabulary.word_to_id(keyword_map[token_str]))
-        return generate_mask(token_index_set, size).flip()
+        return generate_mask(token_index_set, size).flip(), 1 - has_identifer
 
     def __call__(self, sample):
         """
@@ -219,18 +228,31 @@ class GrammarLanguageModelTypeInputMap(object):
 
         terminal_mask = [self._generate_terminal_mask(index, a, b) for index, a, b in
                          zip(terminal_mask_index, consistent_identifier, consistent_typename)]
+        from toolz.sandbox import unzip
+        terminal_mask, has_identifier = unzip(terminal_mask)
+        terminal_mask = list(terminal_mask)
+        for t in terminal_mask:
+            assert len(t) == self._keyword_num
+        has_identifier = list(has_identifier)
 
-        # prev_tokens = []
-        # for t, mask, index in zip(target, terminal_mask, terminal_mask_index):
-        #     if mask[t] != 0:
-        #         print("The code before: {}".format(" ".join([self._token_vocabulary.id_to_word(to) for to in prev_tokens])))
-        #         print("all code:{}".format(" ".join([self._token_vocabulary.id_to_word(to) for to in target])))
-        #         msg = "target {} not in the mask".format(self._token_vocabulary.id_to_word(t))
-        #         raise ValueError(msg)
-        #     else:
-        #         prev_tokens.append(t)
+        prev_tokens = []
+        for t, mask, index, h_i in zip(target, terminal_mask, terminal_mask_index, has_identifier):
+            if t < self._keyword_num:
+                if mask[t] != 0:
+                    # print("The code before: {}".format(" ".join([self._token_vocabulary.id_to_word(to) for to in prev_tokens])))
+                    # print("all code:{}".format(" ".join([self._token_vocabulary.id_to_word(to) for to in target])))
+                    msg = "target {} not in the mask".format(self._token_vocabulary.id_to_word(t))
+                    raise ValueError(msg)
+            elif h_i != 0:
+                # print("The code before: {}".format(
+                #     " ".join([self._token_vocabulary.id_to_word(to) for to in prev_tokens])))
+                # print("all code:{}".format(" ".join([self._token_vocabulary.id_to_word(to) for to in target])))
+                msg = "target {} not in the mask".format(self._token_vocabulary.id_to_word(t))
+                raise ValueError(msg)
+            else:
+                prev_tokens.append(t)
 
-        return {"terminal_mask": terminal_mask, "target": target}
+        return {"terminal_mask": terminal_mask, "target": target, "has_identifier": has_identifier}
 
 
 class IndexMaskMap(object):
@@ -250,6 +272,7 @@ class PadMap(object):
         def pad_one_sample(x):
             x['tokens'] = padded_to_length(x['tokens'], MAX_LENGTH, 0)
             x['is_identifier'] = padded_to_length(x['is_identifier'], MAX_LENGTH, 0)
+            x['has_identifier'] = padded_to_length(x['has_identifier'], MAX_LENGTH, 0)
             x['identifier_scope_index'] = padded_to_length(x['identifier_scope_index'], MAX_LENGTH,
                                                            self._scope_mask_pad)
             x['terminal_mask'] = padded_to_length(x['terminal_mask'], MAX_LENGTH, self._terminal_pad)
@@ -267,6 +290,7 @@ class ScopeGrammarLanguageModel(nn.Module):
                  embedding_dim,
                  hidden_state_size,
                  rnn_num_layers,
+                 keyword_size,
                  stack_size,
                  batch_size):
         super().__init__()
@@ -296,7 +320,11 @@ class ScopeGrammarLanguageModel(nn.Module):
         self.output_mlp = nn.Sequential(
             nn.Linear(hidden_state_size, hidden_state_size),
             nn.ReLU(),
-            nn.Linear(hidden_state_size, vocab_size)).cuda(GPU_INDEX)
+            nn.Linear(hidden_state_size, vocab_size-keyword_size)).cuda(GPU_INDEX)
+        self.output_keyword_mlp = nn.Sequential(
+            nn.Linear(hidden_state_size, hidden_state_size),
+            nn.ReLU(),
+            nn.Linear(hidden_state_size, keyword_size)).cuda(GPU_INDEX)
         self._initial_state = self.initial_state()
         self._begin_stack = self._new_begin_stack()
 
@@ -391,7 +419,8 @@ class ScopeGrammarLanguageModel(nn.Module):
                 is_identifier,
                 update_mask,
                 terminal_mask,
-                lengths):
+                lengths,
+                has_identifier):
         rnn_feature = self._forward_rnn(
             tokens,
             identifier_scope_mask,
@@ -400,10 +429,15 @@ class ScopeGrammarLanguageModel(nn.Module):
             lengths
         )
         terminal_mask = torch.nn.utils.rnn.pack_padded_sequence(terminal_mask, lengths, batch_first=True)
+        has_identifier = torch.nn.utils.rnn.pack_padded_sequence(has_identifier, lengths, batch_first=True).data.cuda(
+            GPU_INDEX)
         batch_sizes = terminal_mask.batch_sizes
         terminal_mask = terminal_mask.data.cuda(GPU_INDEX)
-        predict = self.output_mlp(rnn_feature)
+        predict = self.output_keyword_mlp(rnn_feature)
         predict.data.masked_fill_(terminal_mask, -float('inf'))
+        identifier_predict = self.output_mlp(rnn_feature)
+        identifier_predict.masked_fill_(has_identifier.unsqueeze(1), -float('inf'))
+        predict = torch.cat((predict, identifier_predict), dim=1)
         predict = torch.nn.utils.rnn.PackedSequence(predict, batch_sizes)
         predict, _ = torch.nn.utils.rnn.pad_packed_sequence(predict, batch_first=True, padding_value=PAD_TOKEN)
         return predict
@@ -416,7 +450,7 @@ def train(model,
           optimizer):
     total_loss = torch.Tensor([0]).cuda(GPU_INDEX)
     steps = torch.Tensor([0]).cuda(GPU_INDEX)
-    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True, drop_last=True, epoch_ratio=1.0):
+    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True, drop_last=True, epoch_ratio=0.5):
         # print(batch_data['terminal_mask'])
         # print('batch_data size: ', len(batch_data['terminal_mask'][0]), len(batch_data['terminal_mask'][0][0]))
         # res = list(more_itertools.collapse(batch_data['terminal_mask']))
@@ -425,9 +459,10 @@ def train(model,
         # print('batch_data size: ', len(res[0]), len(res[0][0]))
         # res = list(more_itertools.collapse(res))
         # print('res len: ', len(res))
-        identifier_scope_mask, is_identifier, lengths, target, terminal_mask, tokens, update_mask = parse_batch_data(
+        identifier_scope_mask, is_identifier, lengths, target, terminal_mask, tokens, update_mask, has_identifier\
+            = parse_batch_data(
             batch_data)
-        print("parsed data")
+        # print("parsed data")
         model.zero_grad()
         log_probs = model.forward(
             tokens,
@@ -435,7 +470,7 @@ def train(model,
             is_identifier,
             update_mask,
             terminal_mask,
-            lengths,
+            lengths, has_identifier
         )
         # log_probs.register_hook(create_hook_fn("log_probs"))
 
@@ -471,7 +506,7 @@ def train(model,
 
         optimizer.step()
 
-        print("loss：{}".format(loss.data))
+        # print("loss：{}".format(loss.data))
         total_loss += loss.data
         steps += torch.sum(lengths.data)
     return total_loss / steps
@@ -488,8 +523,9 @@ def parse_batch_data(batch_data):
     update_mask = autograd.Variable(torch.ByteTensor(batch_data['max_scope_list']))
     # print("update_mask size:{}".format(update_mask.size()))
     lengths = autograd.Variable(torch.LongTensor(batch_data['length']))
+    has_identifier = autograd.Variable(torch.ByteTensor(batch_data['has_identifier']))
     target = batch_data["target"]
-    return identifier_scope_mask, is_identifier, lengths, target, terminal_mask, tokens, update_mask
+    return identifier_scope_mask, is_identifier, lengths, target, terminal_mask, tokens, update_mask, has_identifier
 
 
 def evaluate(model,
@@ -499,14 +535,15 @@ def evaluate(model,
     total_loss = torch.Tensor([0]).cuda(GPU_INDEX)
     steps = torch.Tensor([0]).cuda(GPU_INDEX)
     for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True, drop_last=True):
-        identifier_scope_mask, is_identifier, lengths, target, terminal_mask, tokens, update_mask = parse_batch_data(
+        identifier_scope_mask, is_identifier, lengths, target, terminal_mask, tokens, update_mask, has_identifier\
+            = parse_batch_data(
             batch_data)
         log_probs = model.forward(tokens,
                                   identifier_scope_mask,
                                   is_identifier,
                                   update_mask,
                                   terminal_mask,
-                                  lengths, )
+                                  lengths, has_identifier)
 
         batch_log_probs = log_probs.contiguous().view(-1, list(log_probs.size())[-1])
 
@@ -535,7 +572,7 @@ def train_and_evaluate(data,
     save_path = os.path.join(config.save_model_root, saved_name)
     for d, n in zip(data, ["train", "val", "test"]):
         print("There are {} raw data in the {} dataset".format(len(d), n))
-    vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map_with_keyword, [BEGIN], [END], UNK)
+    vocabulary, keyword_num = load_keyword_identifier_split_vocabulary(get_token_vocabulary, [BEGIN], [END], UNK)
     print("vocab_size:{}".format(vocabulary.vocabulary_size))
     print("The max token id:{}".format(max(vocabulary.word_to_id_dict.values())))
 
@@ -548,12 +585,12 @@ def train_and_evaluate(data,
         CopyMap(),
         key_transform(RangeMaskMap(stack_size), "max_scope_list"),
         key_transform(IndexMaskMap(stack_size), "identifier_scope_index"),
-        key_transform(GrammarLanguageModelTypeInputMap(production_vocabulary, vocabulary, label_vocabulary),
+        key_transform(GrammarLanguageModelTypeInputMap(production_vocabulary, vocabulary, label_vocabulary, keyword_num),
                       "tree", "consistent_identifier", "consistent_typename", "target"),
         # IsNone("after type input"),
         FlatMap(),
         # IsNone("Flat Map"),
-        PadMap(vocabulary.vocabulary_size, stack_size),
+        PadMap(keyword_num, stack_size),
         # IsNone("Pad Map"),
     ])
     generate_dataset = lambda df: CCodeDataSet(df, vocabulary, stack_size, transforms_fn)
@@ -572,6 +609,7 @@ def train_and_evaluate(data,
         embedding_dim,
         hidden_state_size,
         rnn_num_layer,
+        keyword_num,
         stack_size,
         batch_size,
     )
@@ -620,12 +658,14 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
-    data = read_monitored_parsed_c99_slk_top_down_code(True)
+    data = read_monitored_parsed_c99_slk_top_down_code()
     # print(data[0]['code'][0])
-    train_and_evaluate(data, 16, 100, 100, 3, 0.01, 10, "scope_grammar_language_model_test.pkl", 10,
+    train_and_evaluate(data, 16, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl", 10,
                        load_previous_model=False)
     # The model c89_grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
-    # train_and_evaluate(data, 16, 200, 200, 3, 0.01, 30, "c99_grammar_new_lm_2.pkl", 10, load_previous_model=False)
+    train_and_evaluate(data, 16, 200, 200, 3, 0.01, 50, "scope_grammar_language_model_2.pkl", 10,
+                       load_previous_model=False)
     # The model c89_grammar_lm_2.pkl best valid perplexity is 3.062429189682007 and test perplexity is 3.045041799545288
-    # train_and_evaluate(data, 16, 300, 300, 3, 0.01, 40, "c99_grammar_new_lm_3.pkl", 10, load_previous_model=False)
+    train_and_evaluate(data, 16, 300, 300, 3, 0.01, 50, "scope_grammar_language_model_3.pkl", 10,
+                       load_previous_model=False)
     # The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
