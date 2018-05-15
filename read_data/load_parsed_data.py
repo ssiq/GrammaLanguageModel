@@ -225,7 +225,10 @@ def read_monitored_parsed_c99_slk_top_down_code(debug=False):
 
 @disk_cache(basename="read_monitored_parsed_c99_slk_top_down_code_without_consistent_name", directory=CACHE_DATA_PATH)
 def read_monitored_parsed_c99_slk_top_down_code_without_consistent_name(debug=False):
-    data = read_monitored_parsed_c99_slk_top_down_code(debug)
+    if debug:
+        data = read_monitored_parsed_c99_slk_top_down_code(debug)
+    else:
+        data = read_monitored_parsed_c99_slk_top_down_code()
     for df in data:
         del df['consistent_typename']
         del df['consistent_identifier']
@@ -338,6 +341,7 @@ if __name__ == '__main__':
     # print(len(res.keys()))
     # read_parsed_c99_slk_top_down_code()
     # print("next")
-    read_monitored_parsed_c99_slk_top_down_code()
+    # read_monitored_parsed_c99_slk_top_down_code()
     # print("ddd")
     # print(sys.stdin.readline())
+    read_monitored_parsed_c99_slk_top_down_code_without_consistent_name()

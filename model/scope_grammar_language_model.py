@@ -47,16 +47,17 @@ class CCodeDataSet(Dataset):
 
         self._samples = [self._get_raw_sample(i) for i in range(len(self.data_df))]
         self._samples = list(filter(lambda x: max(x['max_scope_list']) <= stack_size, self._samples))
-        def error_filter(sample):
-            try:
-                self.transform(sample)
-                return True
-            except Exception as e:
-                print(e)
-                return False
+        # def error_filter(sample):
+        #     try:
+        #         self.transform(sample)
+        #         return True
+        #     except Exception as e:
+        #         print(e)
+        #         return False
         if self.transform:
-            self._samples = list(filter(error_filter, self._samples))
-            # self._samples = show_process_map(self.transform, self._samples, error_default_value=None)
+            # self._samples = list(filter(error_filter, self._samples))
+            self._samples = show_process_map(self.transform, self._samples, error_default_value=None)
+            self._samples = list(filter(lambda x: x is not None, self._samples))
         # for s in self._samples:
         #     for k, v in s.items():
         #         print("{}:shape {}".format(k, np.array(v).shape))
@@ -77,10 +78,10 @@ class CCodeDataSet(Dataset):
         return sample
 
     def __getitem__(self, index):
-        if self.transform:
-            return self.transform(self._samples[index])
-        else:
-            return self._samples[index]
+        # if self.transform:
+        #     return self.transform(self._samples[index])
+        # else:
+        return self._samples[index]
 
     def __len__(self):
         return len(self._samples)
@@ -659,7 +660,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
-    data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name(True)
+    data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name()
     # print(data[0]['code'][0])
     train_and_evaluate(data, 16, 100, 100, 3, 0.01, 5, "scope_grammar_language_model_test.pkl", 10,
                        load_previous_model=False)
