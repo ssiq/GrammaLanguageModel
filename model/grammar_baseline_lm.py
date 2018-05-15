@@ -565,7 +565,7 @@ def transform_data_from_df_to_dataset(data,):
     return res, keyword_num, vocabulary
 
 
-@disk_cache(basename="grammar_baseline_language_model_load_parsed_data", directory=CACHE_DATA_PATH)
+# @disk_cache(basename="grammar_baseline_language_model_load_parsed_data", directory=CACHE_DATA_PATH)
 def load_parsed_data():
     data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name()
     for d, n in zip(data, ["train", "val", "test"]):
