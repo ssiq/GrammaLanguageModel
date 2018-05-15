@@ -24,7 +24,7 @@ from common.constants import pre_defined_c_tokens_map
 from common.util import show_process_map, generate_mask, padded_to_length, key_transform, FlatMap, data_loader, CopyMap
 from embedding.wordembedding import Vocabulary, load_vocabulary, load_keyword_identifier_split_vocabulary
 from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map_with_keyword, \
-    read_monitored_parsed_c99_slk_top_down_code
+    read_monitored_parsed_c99_slk_top_down_code, load_positioned_keyword_identifier_split_vocabulary
 
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 PAD_TOKEN = -1
@@ -658,14 +658,14 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
-    data = read_monitored_parsed_c99_slk_top_down_code()
+    data = read_monitored_parsed_c99_slk_top_down_code(True)
     # print(data[0]['code'][0])
-    train_and_evaluate(data, 16, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl", 10,
+    train_and_evaluate(data, 16, 100, 100, 3, 0.01, 5, "scope_grammar_language_model_test.pkl", 10,
                        load_previous_model=False)
     # The model c89_grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
-    train_and_evaluate(data, 16, 200, 200, 3, 0.01, 50, "scope_grammar_language_model_2.pkl", 10,
-                       load_previous_model=False)
+    # train_and_evaluate(data, 16, 200, 200, 3, 0.01, 50, "scope_grammar_language_model_2.pkl", 10,
+    #                    load_previous_model=False)
     # The model c89_grammar_lm_2.pkl best valid perplexity is 3.062429189682007 and test perplexity is 3.045041799545288
-    train_and_evaluate(data, 16, 300, 300, 3, 0.01, 50, "scope_grammar_language_model_3.pkl", 10,
-                       load_previous_model=False)
+    # train_and_evaluate(data, 16, 300, 300, 3, 0.01, 50, "scope_grammar_language_model_3.pkl", 10,
+    #                    load_previous_model=False)
     # The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504

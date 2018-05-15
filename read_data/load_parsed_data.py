@@ -223,6 +223,16 @@ def read_monitored_parsed_c99_slk_top_down_code(debug=False):
         return [parse_df(df.head(100)) for df in read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()]
 
 
+@disk_cache(basename="read_monitored_parsed_c99_slk_top_down_code_without_consistent_name", directory=CACHE_DATA_PATH)
+def read_monitored_parsed_c99_slk_top_down_code_without_consistent_name(debug=False):
+    data = read_monitored_parsed_c99_slk_top_down_code(debug)
+    for df in data:
+        del df['consistent_typename']
+        del df['consistent_identifier']
+    return data
+
+
+
 @disk_cache(basename="read_random_error_c99_code_tokens_list", directory=CACHE_DATA_PATH)
 def read_random_error_c99_code_tokens_list():
     print('in read_random_error_c99_code_tokens_list')
@@ -287,6 +297,28 @@ def get_common_error_c99_code_token_vocabulary_id_map():
 
 def generate_tokens_for_c_error_dataset(data):
     return [create_error_tokens(df) for df in data]
+
+
+@disk_cache(basename="load_positioned_keyword_identifier_split_vocabulary", directory=CACHE_DATA_PATH)
+def load_positioned_keyword_identifier_split_vocabulary(begin_tokens, end_tokens, unk_token):
+    keyword_map = pre_defined_c_tokens_map
+    keyword_set = sorted(set(keyword_map.values()))
+    vocabulary = get_token_vocabulary()
+    vocabulary_map = {}
+    for keyword in keyword_set:
+        vocabulary_map[keyword] = len(vocabulary_map)
+    for t in begin_tokens:
+        vocabulary_map[t] = len(vocabulary_map)
+    for t in end_tokens:
+        vocabulary_map[t] = len(vocabulary_map)
+    for t in {"CONSTANT", "STRING_LITERAL"}:
+        vocabulary_map[t] = len(vocabulary_map)
+    vocabulary_map[unk_token] = len(vocabulary_map)
+    keyword_index = len(vocabulary_map)
+    for v in vocabulary:
+        if v not in vocabulary_map:
+            vocabulary_map[v] = len(vocabulary_map)
+    return keyword_index, vocabulary_map
 
 
 if __name__ == '__main__':

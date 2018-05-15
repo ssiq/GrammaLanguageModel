@@ -9,8 +9,6 @@ from c_code_processer.fake_c_header.extract_identifier import extract_fake_c_hea
 from common import util
 import collections
 
-from embedding.wordembedding import Vocabulary, load_vocabulary
-
 
 class SLKConstants(object):
     def __init__(self):
@@ -2936,7 +2934,7 @@ class CAction(Action):
 
 class MoniteredCAction(CAction):
     def __init__(self, slk_constants: SLKConstants, label_vocabulary: LabelVocabulary, lex: InputLexTokens,
-                 predefined_identifier_set, predefined_typename, vocabulary: Vocabulary, verbose=False):
+                 predefined_identifier_set, predefined_typename, vocabulary, verbose=False):
         super().__init__(slk_constants, label_vocabulary, lex, verbose)
         self._new_scope()
         self._predefined_identifier_set= predefined_identifier_set
@@ -3275,6 +3273,7 @@ class SLKProductionVocabulary(ProductionVocabulary):
 
 
 if __name__ == '__main__':
+    from embedding.wordembedding import Vocabulary, load_vocabulary
     code = '''
      int max(int a,int b){
      if (a>b)return a;

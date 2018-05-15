@@ -1,11 +1,5 @@
-import abc
-
-import more_itertools
-import numpy
-import numpy as np
-
 from common import util
-from common.constants import pre_defined_c_tokens_map
+from read_data.load_parsed_data import load_positioned_keyword_identifier_split_vocabulary
 
 
 class Vocabulary(object):
@@ -66,21 +60,10 @@ def load_vocabulary(load_vocabulary_fn, load_vocabulary_id_dict, begin_tokens ,e
     return Vocabulary(load_vocabulary_fn(), load_vocabulary_id_dict(), begin_tokens, end_tokens, unk_token)
 
 def load_keyword_identifier_split_vocabulary(load_vocabulary_fn, begin_tokens, end_tokens, unk_token):
-    keyword_map = pre_defined_c_tokens_map
-    keyword_set = sorted(set(keyword_map.values()))
+    keyword_index, vocabulary_map = load_positioned_keyword_identifier_split_vocabulary(begin_tokens,
+                                                                                                    end_tokens,
+                                                                                                    unk_token)
     vocabulary = load_vocabulary_fn()
-    vocabulary_map = {}
-    for keyword in keyword_set:
-        vocabulary_map[keyword] = len(vocabulary_map)
-    for t in begin_tokens:
-        vocabulary_map[t] = len(vocabulary_map)
-    for t in end_tokens:
-        vocabulary_map[t] = len(vocabulary_map)
-    for t in {"CONSTANT", "STRING_LITERAL"}:
-        vocabulary_map[t] = len(vocabulary_map)
-    vocabulary_map[unk_token] = len(vocabulary_map)
-    keyword_index = len(vocabulary_map)
-    for v in vocabulary:
-        if v not in vocabulary_map:
-            vocabulary_map[v] = len(vocabulary_map)
     return Vocabulary(vocabulary, vocabulary_map, begin_tokens, end_tokens, unk_token, False), keyword_index
+
+
