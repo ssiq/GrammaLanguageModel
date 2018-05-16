@@ -5,6 +5,7 @@ import config
 import os
 import more_itertools
 
+from common.torch_util import calculate_accuracy_of_code_completion
 from read_data.load_parsed_data import read_filtered_without_include_code_tokens, get_token_vocabulary, \
     get_vocabulary_id_map
 from embedding.wordembedding import load_vocabulary
@@ -221,6 +222,46 @@ def evaluate(model, X, y, loss_function, batch_size):
     return total_loss / batch_token_count
 
 
+def model_test(model, X, y, batch_size, topk_range=(1, 15)):
+    # print('in evaluate')
+    steps = 0
+    batch_token_count = 0
+    model.eval()
+
+    accuracy_dict = {}
+
+    for inp, out in batch_holder(X, y, batch_size=batch_size)():
+        if len(inp) != batch_size:
+            break
+
+        inp, inp_len = list(zip(*inp))
+        one_batch_count = 0
+        for le in inp_len:
+            one_batch_count += le
+        batch_token_count += one_batch_count
+        inp = util.padded(list(inp), deepcopy=True, fill_value=0)
+        out = util.padded(list(out), deepcopy=True, fill_value=0)
+
+        model.hidden = model.init_hidden()
+
+        log_probs = model.forward(inp, inp_len)
+        batch_accuracy_dict = calculate_accuracy_of_code_completion(log_probs, out, ignore_token=0, topk_range=topk_range, gpu_index=gpu_index)
+        for key, value in batch_accuracy_dict.items():
+            accuracy_dict[key] = accuracy_dict.get(key, 0) + value
+
+        cur_accuracy = {key:value/one_batch_count for key, value in batch_accuracy_dict.items()}
+        print('step {} accuracy: {}'.format(steps, cur_accuracy))
+
+        if steps % 1000 == 0:
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+        steps += 1
+    total_accuracy = {key: value / batch_token_count for key, value in accuracy_dict.items()}
+    print('mean accuracy per token: ', total_accuracy)
+    return total_accuracy
+
+
 def parse_xy(codes, word_to_id_fn):
     begin_tokens = [BEGIN]
     end_tokens = [END]
@@ -239,7 +280,7 @@ def parse_xy(codes, word_to_id_fn):
     return X, y
 
 
-def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidirectional, dropout, learning_rate, batch_size, epoches, saved_name, load_path=None):
+def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidirectional, dropout, learning_rate, batch_size, epoches, saved_name, load_path=None, is_accuracy=False):
     print('------------------------------------- start train and evaluate ----------------------------------------')
     print('embedding_dim: {}, hidden_size: {}, num_layers: {}, bidirectional: {}, dropout: {}, '
           'learning_rate: {}, batch_size: {}, epoches: {}, saved_name: {}'.format(
@@ -289,6 +330,11 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
     sys.stdout.flush()
     sys.stderr.flush()
 
+    if is_accuracy:
+        test_accuracy = model_test(model, test_X, test_y, batch_size)
+        print("The model {} accuracy is {}".format(load_path, test_accuracy))
+        return test_accuracy
+
     for i in range(epoches):
         print('in epoch {}'.format(i))
         train_loss = train(model, train_X, train_y, optimizer, loss_function, batch_size)
@@ -306,7 +352,7 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
 
         scheduler.step(valid_perplexity)
 
-        if best_valid_perplexity is None or valid_perplexity < best_valid_perplexity:
+        if (best_valid_perplexity is None or valid_perplexity < best_valid_perplexity) and not is_accuracy:
             best_valid_perplexity = valid_perplexity
             best_test_perplexity = test_perplexity
             torch_util.save_model(model, save_path)
@@ -330,15 +376,15 @@ if __name__ == '__main__':
     # torch.backends.cudnn.benchmark = True
     print('start')
 
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl')
-    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_2.pkl', load_path='neural_lstm_2.pkl')
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl')
-    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_4.pkl', load_path='neural_lstm_4.pkl')
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl', is_accuracy=True)
+    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_2.pkl', load_path='neural_lstm_2.pkl', is_accuracy=True)
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl', is_accuracy=True)
+    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_4.pkl', load_path='neural_lstm_4.pkl', is_accuracy=True)
 
     # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=3, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=10, saved_name='neural_lstm_5.pkl', load_path='neural_lstm_5.pkl')
         # final train perplexity of 9.800065994262695,  valid perplexity of 10.168289184570312, test perplexity of 10.024857521057129
         # The model neural_lstm_5.pkl best valid perplexity is 10.168289184570312 and test perplexity is 10.024857521057129
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=3, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_6.pkl', load_path='neural_lstm_6.pkl')
+    # train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=3, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_6.pkl', load_path='neural_lstm_6.pkl')
 
 
     # model = LSTMModel(dictionary_size=20, embedding_dim=50, hidden_size=200, num_layers=3, batch_size=1, bidirectional=False, dropout=0)

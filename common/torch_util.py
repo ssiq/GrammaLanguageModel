@@ -156,3 +156,54 @@ class MultiRNNCell(RNNCellBase):
                 h_i = h
         return h_i, res_h
 
+
+
+
+def calculate_accuracy_of_code_completion(log_probs, target, ignore_token=None, topk_range=(1, 15), gpu_index=None):
+    """
+    compare the log probility of all possible token with target token. calculate the accuracy of the code.
+    ensure dim[1] of log_probs(seq len) is the same as dim[1] of target.
+    :param log_probs:
+    :param target:
+    :param ignore_token:
+    :param save_name:
+    :param topk_range:
+    :return:
+    """
+    # log_probs_size = [batch_size, seq_len, vocab]
+    if isinstance(target, list):
+        target = torch.LongTensor(target)
+        if gpu_index is not None:
+            target = target.cuda(gpu_index)
+
+    batch_size = log_probs.shape[0]
+    if len(log_probs.shape) == 2:
+        log_probs = log_probs.unsqueeze(dim=1)
+
+    max_topk = max(*topk_range)
+
+    # top_k_ids_size = [batch_size, seq_len, max_topk]
+    top_k_ids = torch.topk(log_probs, dim=2, k=15)[1]
+
+    # resize target to the same shape of top k ids
+    target = target.unsqueeze(dim=2)
+    repeat_shape = [1] * len(target.shape)
+    repeat_shape[-1] = max_topk
+    repeat_target = target.repeat(*repeat_shape)
+    equal_list = torch.eq(top_k_ids, repeat_target)
+
+    if ignore_token is not None:
+        mask = torch.ne(target, ignore_token)
+        zero_tensor = torch.zeros(equal_list.shape).byte()
+        if gpu_index is not None:
+            zero_tensor = zero_tensor.cuda(gpu_index)
+        equal_list = torch.where(mask, equal_list, zero_tensor)
+
+    result = {}
+    for k in range(*topk_range):
+        result[k] = equal_list[:, :, 0:k].sum().item()
+    return result
+
+
+def calculate_mrr_of_code_completion(log_probs, target, batch_size, save_name, topk=15):
+    pass
