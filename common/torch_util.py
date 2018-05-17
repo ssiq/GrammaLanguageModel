@@ -6,12 +6,14 @@ import torch
 import typing
 from torch.nn.modules.rnn import RNNCellBase
 
+from common.util import transform_id_to_token
+
 
 def save_model(model: torch.nn.Module, path):
     torch.save(model.state_dict(), path)
 
-def load_model(model: torch.nn.Module, path):
-    model.load_state_dict(torch.load(path))
+def load_model(model: torch.nn.Module, path, map_location={}):
+    model.load_state_dict(torch.load(path, map_location=map_location))
 
 def mask_softmax(logit, mask):
     logit = logit * mask
@@ -203,6 +205,20 @@ def calculate_accuracy_of_code_completion(log_probs, target, ignore_token=None, 
     for k in range(*topk_range):
         result[k] = equal_list[:, :, 0:k].sum().item()
     return result
+
+
+def get_predict_and_target_tokens(log_probs, target, id_to_word_fn, k=1, offset=0):
+    _, top_k_ids = torch.topk(log_probs, dim=2, k=k)
+    top_k_ids = top_k_ids.tolist()
+    batch_predict = []
+    batch_target = []
+    for i, one in enumerate(top_k_ids):
+        # one shape = [seq_len, k]
+        predict_tokens = [transform_id_to_token(one_position, id_to_word_fn, offset=offset) for one_position in one]
+        out_token = transform_id_to_token(target[i], id_to_word_fn, offset=offset)
+        batch_predict += [predict_tokens]
+        batch_target += [out_token]
+    return batch_predict, batch_target
 
 
 def calculate_mrr_of_code_completion(log_probs, target, batch_size, save_name, topk=15):

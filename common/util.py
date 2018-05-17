@@ -738,3 +738,8 @@ class MaskList(collections.Sequence):
             if a != b:
                 return False
         return True
+
+
+def transform_id_to_token(one_sequence_ids, id_to_word_fn, offset=0):
+    tokens = [id_to_word_fn(i+offset) for i in one_sequence_ids]
+    return tokens

@@ -1,9 +1,11 @@
+import sys
+
 import torch
 
 from nltk import ngrams
 
 from common.constants import CACHE_DATA_PATH
-from common.torch_util import calculate_accuracy_of_code_completion
+from common.torch_util import calculate_accuracy_of_code_completion, get_predict_and_target_tokens
 from common.util import disk_cache
 from read_data.load_parsed_data import read_filtered_without_include_code_tokens
 
@@ -11,6 +13,7 @@ from nltk.model.ngram import LaplaceNgramModel
 from nltk.model.counter import build_vocabulary, NgramCounter
 import more_itertools
 
+from read_data.read_example_code import read_example_code_tokens
 
 is_debug = False
 order = 8
@@ -81,6 +84,16 @@ def create_trained_counter():
     return counter
 
 
+@disk_cache(basename='n_grams_counter_test', directory=CACHE_DATA_PATH)
+def create_trained_counter_test():
+    train_data, valid_data, test_data = read_and_filter_data()
+    print('train_data len: {}'.format(len(train_data)))
+    vocab = create_ngrams_vocabulary(train_data)
+    counter = create_counter_and_train_text(train_data, vocab, order)
+    print(counter.ngrams[3][('char', 'trump')][','], counter.ngrams[3][('char', 'trump')].N())
+    return counter
+
+
 # def transform_counter_ctx(ctx_dict):
 #     ctx_total = ctx_dict.N()
 #     for word in ctx_dict:
@@ -111,14 +124,19 @@ def transform_counter_order(order_dict, vocab_size, word_to_id_fn):
     print('before transform counter: {}'.format(len(order_dict)))
     step = 0
     for ctx in order_dict:
-        print('transform step: {}'.format(step))
+        if 'main' in ctx:
+            print(order_dict[ctx])
+        if step % 100 == 0:
+            print('transform step: {}'.format(step))
+            sys.stdout.flush()
+            sys.stderr.flush()
         step += 1
         order_dict[ctx] = produce_one_token_probility(order_dict[ctx], vocab_size, word_to_id_fn)
     print('end transform counter: {}'.format(len(order_dict)))
     return order_dict
 
 
-def evaluate_one_text(counter, test_data, cur_order, word_to_id_fn, vocab_size):
+def evaluate_one_text(counter, test_data, cur_order, word_to_id_fn, vocab_size, is_example=False, id_to_word_fn=None):
     accuracy_dict = {}
     batch_count = 0
     step = 0
@@ -147,12 +165,22 @@ def evaluate_one_text(counter, test_data, cur_order, word_to_id_fn, vocab_size):
             if len(one_position_prob) != vocab_size:
                 one_position_prob = no_exist_probs
             probs += [one_position_prob]
+        if is_example:
+            predict_tokens, target_tokens = get_predict_and_target_tokens(torch.Tensor([probs]), [target], id_to_word_fn, k=1)
+            i = 0
+            for pre, tar in zip(predict_tokens, target_tokens):
+                print('{} in step {} predict token: {}'.format(i, step, pre))
+                print('{} in step {} target token: {}'.format(i, step, tar))
+                i += 1
+            continue
         accuracy = calculate_accuracy_of_code_completion(torch.Tensor([probs]), torch.LongTensor([target]))
         batch_count += len(target)
         for key, value in accuracy.items():
             accuracy_dict[key] = accuracy_dict.get(key, 0) + value
-        if step % 10 == 0:
+        if step % 100 == 0:
             print('in step : {}, total: {}, accuracy: {}'.format(step, len(target), accuracy))
+            sys.stdout.flush()
+            sys.stderr.flush()
     total_accuracy = {key: value / batch_count for key, value in accuracy_dict.items()}
     return total_accuracy
 
@@ -165,27 +193,36 @@ def produce_one_token_probility(ctx_dict, vocab_size, word_to_id_fn):
     return one_position_prob
 
 
-def evaluate_counter(counter):
-    train_data, valid_data, test_data = read_and_filter_data()
+def evaluate_counter(counter, is_example=False):
+    train_data, _, test_data = read_and_filter_data()
     vocab = create_ngrams_vocabulary(train_data)
     word_to_id_dict, id_to_word_dict = create_vocabulary_transform_dict(vocab, start, end, unk)
     word_to_id_fn = create_dict_fn(word_to_id_dict, word_to_id_dict[unk])
     id_to_word_fn = create_dict_fn(id_to_word_dict, unk)
     vocab_size = len(word_to_id_dict.keys())
 
-    for ord in range(2, 8):
+    if is_example:
+        example_data = read_example_code_tokens()
+        test_data = example_data
+
+    del train_data
+
+    for ord in range(2, order):
         print('before evaluate order: {}'.format(ord))
-        accuracy = evaluate_one_text(counter, test_data, ord, word_to_id_fn, vocab_size)
+        accuracy = evaluate_one_text(counter, test_data, ord, word_to_id_fn, vocab_size, is_example, id_to_word_fn)
         print("The order {} accuracy is {}".format(ord, accuracy))
 
 
 def train_and_evaluate():
-    counter = create_trained_counter()
+    if is_debug:
+        counter = create_trained_counter_test()
+    else:
+        counter = create_trained_counter()
     # train_data, valid_data, test_data = read_and_filter_data()
     # vocab = create_ngrams_vocabulary(train_data)
     # print('has <s>: {}'.format('<s>' in vocab))
     # print(counter.ngrams[3][('char', 'trump')][','], counter.ngrams[3][('char', 'trump')].N())
-    evaluate_counter(counter)
+    evaluate_counter(counter, is_example=True)
 
 
 

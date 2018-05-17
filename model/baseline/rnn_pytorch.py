@@ -5,15 +5,16 @@ import config
 import os
 import more_itertools
 
-from common.torch_util import calculate_accuracy_of_code_completion
+from common.torch_util import calculate_accuracy_of_code_completion, get_predict_and_target_tokens
 from read_data.load_parsed_data import read_filtered_without_include_code_tokens, get_token_vocabulary, \
     get_vocabulary_id_map
 from embedding.wordembedding import load_vocabulary
-from common.util import batch_holder
+from common.util import batch_holder, transform_id_to_token
 from common import util, torch_util
 from sklearn.utils import shuffle
 import sys
 
+from read_data.read_example_code import read_example_code_tokens
 
 gpu_index = 0
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
@@ -45,11 +46,11 @@ class LSTMModel(nn.Module):
         self.hidden2tag = nn.Linear(hidden_size * self.bidirectional_num, dictionary_size).cuda(gpu_index)
 
         print('before init hidden')
-        self.hidden = self.init_hidden()
+        self.hidden = self.init_hidden(self.batch_size)
 
-    def init_hidden(self):
-        return (autograd.Variable(torch.randn(self.num_layers * self.bidirectional_num, self.batch_size, self.hidden_size)).cuda(gpu_index),
-                autograd.Variable(torch.randn(self.num_layers * self.bidirectional_num, self.batch_size, self.hidden_size)).cuda(gpu_index))
+    def init_hidden(self, cur_batch_size):
+        return (autograd.Variable(torch.randn(self.num_layers * self.bidirectional_num, cur_batch_size, self.hidden_size)).cuda(gpu_index),
+                autograd.Variable(torch.randn(self.num_layers * self.bidirectional_num, cur_batch_size, self.hidden_size)).cuda(gpu_index))
 
     def forward(self, inputs, token_lengths):
         """
@@ -62,6 +63,8 @@ class LSTMModel(nn.Module):
         inputs = torch.LongTensor(inputs)
         token_lengths = torch.LongTensor(token_lengths)
 
+        cur_batch_size = len(inputs)
+
         _, idx_sort = torch.sort(token_lengths, dim=0, descending=True)
         _, idx_unsort = torch.sort(idx_sort, dim=0)
 
@@ -70,9 +73,9 @@ class LSTMModel(nn.Module):
 
         print('input_size: ', inputs.size())
 
-        embeds = self.word_embeddings(autograd.Variable(inputs).cuda(gpu_index)).view(self.batch_size, -1, self.embedding_dim).cuda(gpu_index)
+        embeds = self.word_embeddings(autograd.Variable(inputs).cuda(gpu_index)).view(cur_batch_size, -1, self.embedding_dim).cuda(gpu_index)
         # print('embeds_size: {}, embeds is cuda: {}'.format(embeds.size(), embeds.is_cuda))
-        embeds = embeds.view(self.batch_size, -1, self.embedding_dim)
+        embeds = embeds.view(cur_batch_size, -1, self.embedding_dim)
         embeds = self.drop(embeds).cuda(gpu_index)
         print('embeds_size: {}, embeds is cuda: {}'.format(embeds.size(), embeds.is_cuda))
         # print('embeds value: {}'.format(embeds.data))
@@ -140,7 +143,7 @@ def train(model, X, y, optimizer, loss_function, batch_size):
 
         model.zero_grad()
 
-        model.hidden = model.init_hidden()
+        model.hidden = model.init_hidden(batch_size)
 
         log_probs = model.forward(inp, inp_len)
         # print('log_probs: {}'.format(log_probs.data))
@@ -173,7 +176,7 @@ def train(model, X, y, optimizer, loss_function, batch_size):
     return total_loss / batch_token_count
 
 
-def evaluate(model, X, y, loss_function, batch_size):
+def evaluate(model, X, y, loss_function, batch_size, is_example=False, id_to_word_fn=None):
     # print('in evaluate')
     steps = 0
     total_loss = torch.Tensor([0])
@@ -181,7 +184,7 @@ def evaluate(model, X, y, loss_function, batch_size):
     model.eval()
 
     for inp, out in batch_holder(X, y, batch_size=batch_size)():
-        if len(inp) != batch_size:
+        if not is_example and len(inp) != batch_size:
             break
 
         # print('in one batch: X: {},{}, y: {},{}'.format(len(inp), len(inp[0]), len(out), len(out[0])))
@@ -201,9 +204,17 @@ def evaluate(model, X, y, loss_function, batch_size):
         # print('y size: ', torch.Tensor(out).size())
         # print('token_length size: {}'.format(inp_len))
 
-        model.hidden = model.init_hidden()
+        model.hidden = model.init_hidden(len(inp))
 
         log_probs = model.forward(inp, inp_len)
+
+        if is_example:
+            predict_tokens, target_tokens = get_predict_and_target_tokens(log_probs, out, id_to_word_fn, k=1, offset=-1)
+            i = 0
+            for pre, tar in zip(predict_tokens, target_tokens):
+                print('{} in step {} predict token: {}'.format(i, steps, pre))
+                print('{} in step {} target token: {}'.format(i, steps, tar))
+                i += 1
 
         batch_log_probs = log_probs.view(-1, list(log_probs.size())[-1])
         out = list(more_itertools.flatten(out))
@@ -217,14 +228,15 @@ def evaluate(model, X, y, loss_function, batch_size):
             sys.stderr.flush()
 
         steps += 1
-    print('mean loss per steps: ', total_loss / steps)
+    # print('mean loss per steps: ', total_loss / steps)
     print('mean loss per token: ', total_loss / batch_token_count)
     return total_loss / batch_token_count
 
 
-def model_test(model, X, y, batch_size, topk_range=(1, 15)):
+def model_test(model, X, y, loss_function, batch_size, topk_range=(1, 15)):
     # print('in evaluate')
     steps = 0
+    total_loss = torch.Tensor([0])
     batch_token_count = 0
     model.eval()
 
@@ -242,7 +254,7 @@ def model_test(model, X, y, batch_size, topk_range=(1, 15)):
         inp = util.padded(list(inp), deepcopy=True, fill_value=0)
         out = util.padded(list(out), deepcopy=True, fill_value=0)
 
-        model.hidden = model.init_hidden()
+        model.hidden = model.init_hidden(len(inp))
 
         log_probs = model.forward(inp, inp_len)
         batch_accuracy_dict = calculate_accuracy_of_code_completion(log_probs, out, ignore_token=0, topk_range=topk_range, gpu_index=gpu_index)
@@ -252,6 +264,13 @@ def model_test(model, X, y, batch_size, topk_range=(1, 15)):
         cur_accuracy = {key:value/one_batch_count for key, value in batch_accuracy_dict.items()}
         print('step {} accuracy: {}'.format(steps, cur_accuracy))
 
+        batch_log_probs = log_probs.view(-1, list(log_probs.size())[-1])
+        out = list(more_itertools.flatten(out))
+
+        loss = loss_function(batch_log_probs, autograd.Variable(torch.LongTensor(out)).cuda(gpu_index))
+        print('step {} loss: {}'.format(steps, loss.data))
+        total_loss += (loss.data.cpu() * one_batch_count)
+
         if steps % 1000 == 0:
             sys.stdout.flush()
             sys.stderr.flush()
@@ -259,6 +278,9 @@ def model_test(model, X, y, batch_size, topk_range=(1, 15)):
         steps += 1
     total_accuracy = {key: value / batch_token_count for key, value in accuracy_dict.items()}
     print('mean accuracy per token: ', total_accuracy)
+    print('mean loss per steps: ', total_loss / steps)
+    print('mean loss per token: ', total_loss / batch_token_count)
+    print('mean perplexity: ', torch.exp(total_loss / batch_token_count)[0])
     return total_accuracy
 
 
@@ -280,7 +302,7 @@ def parse_xy(codes, word_to_id_fn):
     return X, y
 
 
-def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidirectional, dropout, learning_rate, batch_size, epoches, saved_name, load_path=None, is_accuracy=False):
+def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidirectional, dropout, learning_rate, batch_size, epoches, saved_name, load_path=None, is_accuracy=False, is_example=False):
     print('------------------------------------- start train and evaluate ----------------------------------------')
     print('embedding_dim: {}, hidden_size: {}, num_layers: {}, bidirectional: {}, dropout: {}, '
           'learning_rate: {}, batch_size: {}, epoches: {}, saved_name: {}'.format(
@@ -296,12 +318,14 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
     vocabulary_size = vocabulary.vocabulary_size
 
     print('before read data')
-    if debug:
+    if is_example:
+        example_data = read_example_code_tokens()
+    elif debug:
         train_data, valid_data, test_data = [d[:100] for d in read_filtered_without_include_code_tokens()]
+        print("train data size:{}".format(len(train_data)))
     else:
         train_data, valid_data, test_data = read_filtered_without_include_code_tokens()
-
-    print("train data size:{}".format(len(train_data)))
+        print("train data size:{}".format(len(train_data)))
 
     print('before create loss function')
     loss_function = nn.CrossEntropyLoss(ignore_index=0)
@@ -319,10 +343,15 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
 
 
     print('before parse xy')
-    train_X, train_y = parse_xy(train_data, vocabulary.word_to_id)
-    valid_X, valid_y = parse_xy(valid_data, vocabulary.word_to_id)
-    test_X, test_y = parse_xy(test_data, vocabulary.word_to_id)
-    print('after parse xy train data: {}, valid data: {}, test data: {}'.format(len(train_X), len(valid_X), len(test_X)))
+    if is_example:
+        example_X, example_y = parse_xy(example_data, vocabulary.word_to_id)
+        evaluate(model, example_X, example_y, loss_function, batch_size, is_example, vocabulary.id_to_word)
+        return
+    else:
+        train_X, train_y = parse_xy(train_data, vocabulary.word_to_id)
+        valid_X, valid_y = parse_xy(valid_data, vocabulary.word_to_id)
+        test_X, test_y = parse_xy(test_data, vocabulary.word_to_id)
+        print('after parse xy train data: {}, valid data: {}, test data: {}'.format(len(train_X), len(valid_X), len(test_X)))
 
     best_valid_perplexity = None
     best_test_perplexity = None
@@ -331,7 +360,7 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
     sys.stderr.flush()
 
     if is_accuracy:
-        test_accuracy = model_test(model, test_X, test_y, batch_size)
+        test_accuracy = model_test(model, test_X, test_y, loss_function, batch_size)
         print("The model {} accuracy is {}".format(load_path, test_accuracy))
         return test_accuracy
 
@@ -376,10 +405,10 @@ if __name__ == '__main__':
     # torch.backends.cudnn.benchmark = True
     print('start')
 
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl', is_accuracy=True)
-    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_2.pkl', load_path='neural_lstm_2.pkl', is_accuracy=True)
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl', is_accuracy=True)
-    train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_4.pkl', load_path='neural_lstm_4.pkl', is_accuracy=True)
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl', is_accuracy=True, is_example=False)
+    # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_2.pkl', load_path='neural_lstm_2.pkl', is_accuracy=False, is_example=True)
+    # train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl', is_accuracy=False, is_example=True)
+    # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_4.pkl', load_path='neural_lstm_4.pkl', is_accuracy=False, is_example=True)
 
     # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=3, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=10, saved_name='neural_lstm_5.pkl', load_path='neural_lstm_5.pkl')
         # final train perplexity of 9.800065994262695,  valid perplexity of 10.168289184570312, test perplexity of 10.024857521057129
