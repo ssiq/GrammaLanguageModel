@@ -1,3 +1,4 @@
+import pickle
 import sys
 import time
 
@@ -674,22 +675,90 @@ def load_parsed_data(stack_size):
     return res, keyword_num, vocabulary
 
 
+def load_test_data(stack_size, ):
+    cache_path = os.path.join(CACHE_DATA_PATH, "scope_grammar_language_model_parsed_test_data.pkl")
+    print("cached_path:{}".format(cache_path))
+    # if os.path.isfile(cache_path):
+    #     with open(cache_path, 'rb') as handle:
+    #         print("load cache from:{}".format(cache_path))
+    #         res, keyword_num, vocabulary = pickle.load(handle)
+    # else:
+    data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name()
+    for d, n in zip(data, ["train", "val", "test"]):
+        print("There are {} raw data in the {} dataset".format(len(d), n))
+    data = data[-1:]
+    res, keyword_num, vocabulary = transform_data_from_df_to_dataset(data, stack_size)
+        # with open(cache_path, 'wb') as handle:
+        #     print("dump cache from:{}".format(cache_path))
+        #     pickle.dump([res, keyword_num, vocabulary], handle)
+    print("parsed test data size:{}".format(len(res)))
+    return res, keyword_num, vocabulary
+
+
+def only_evaluate(data,
+                  keyword_num,
+                  vocabulary,
+                  batch_size,
+                  embedding_dim,
+                  hidden_state_size,
+                  rnn_num_layer,
+                  learning_rate,
+                  epoches,
+                  saved_name,
+                  stack_size,
+                  load_previous_model=False):
+    save_path = os.path.join(config.save_model_root, saved_name)
+    # for d in data:
+    #     def get_i(i):
+    #         return d[i]
+    #     show_process_map(get_i, range(len(d)))
+    # for d, n in zip(data, ["train", "val", "test"]):
+    #     print("There are {} parsed data in the {} dataset".format(len(d), n))
+    test_dataset = data
+
+    loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=PAD_TOKEN)
+    model = ScopeGrammarLanguageModel(
+        vocabulary.vocabulary_size,
+        embedding_dim,
+        hidden_state_size,
+        rnn_num_layer,
+        keyword_num,
+        stack_size,
+        batch_size,
+    )
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+
+    torch_util.load_model(model, save_path)
+    test_loss = evaluate(model, test_dataset, batch_size, loss_function)
+    best_test_perplexity = torch.exp(test_loss).item()
+    print(
+        "load the previous mode, test perplexity is :{}".format(
+                                                                                             best_test_perplexity))
+    # print(prof)
+    print("The model {} test perplexity is {}".
+          format(saved_name, best_test_perplexity))
+
+
 if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
 
     stack_size = 10
-    data, keyword_num, vocabulary = load_parsed_data(stack_size)
+    data, keyword_num, vocabulary = load_test_data(stack_size)
+    only_evaluate(data, keyword_num, vocabulary, 16, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
+                  stack_size,
+                  load_previous_model=True)
     # print(data[0]['code'][0])
-    train_and_evaluate(data, keyword_num, vocabulary, 16, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
-                       stack_size,
-                       load_previous_model=False)
+    # train_and_evaluate(data, keyword_num, vocabulary, 16, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
+    #                    stack_size,
+    #                    load_previous_model=False)
     # The model c89_grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
-    train_and_evaluate(data, keyword_num, vocabulary, 16, 200, 200, 3, 0.01, 50, "scope_grammar_language_model_2.pkl",
-                       stack_size,
-                       load_previous_model=False)
+    # train_and_evaluate(data, keyword_num, vocabulary, 16, 200, 200, 3, 0.01, 50, "scope_grammar_language_model_2.pkl",
+    #                    stack_size,
+    #                    load_previous_model=False)
     # The model c89_grammar_lm_2.pkl best valid perplexity is 3.062429189682007 and test perplexity is 3.045041799545288
-    train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 3, 0.01, 50, "scope_grammar_language_model_3.pkl",
-                       stack_size, load_previous_model = False)
+    # train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 3, 0.01, 50, "scope_grammar_language_model_3.pkl",
+    #                    stack_size, load_previous_model = False)
     # The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
