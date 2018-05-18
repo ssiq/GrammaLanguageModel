@@ -22,6 +22,7 @@ from c_code_processer.fake_c_header.extract_identifier import extract_fake_c_hea
 from c_code_processer.slk_parser import SLKProductionVocabulary, C99LabelVocabulary, C99SLKConstants
 from common import torch_util, util
 from common.constants import pre_defined_c_tokens_map, CACHE_DATA_PATH
+from common.torch_util import calculate_accuracy_of_code_completion
 from common.util import show_process_map, generate_mask, padded_to_length, key_transform, FlatMap, data_loader, CopyMap, \
     disk_cache, inplace_show_process_map
 from embedding.wordembedding import Vocabulary, load_vocabulary, load_keyword_identifier_split_vocabulary
@@ -695,6 +696,45 @@ def load_test_data(stack_size, ):
     return res, keyword_num, vocabulary
 
 
+def accuracy_evaluate(model,
+                      dataset,
+                      batch_size,
+                      loss_function,):
+    total_loss = torch.Tensor([0]).cuda(GPU_INDEX)
+    steps = torch.Tensor([0]).cuda(GPU_INDEX)
+    accuracy_dict = None
+    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True, drop_last=True):
+        identifier_scope_mask, is_identifier, lengths, target, terminal_mask, tokens, update_mask, has_identifier\
+            = parse_batch_data(
+            batch_data)
+        log_probs = model.forward(tokens,
+                                  identifier_scope_mask,
+                                  is_identifier,
+                                  update_mask,
+                                  terminal_mask,
+                                  lengths, has_identifier)
+
+        batch_log_probs = log_probs.contiguous().view(-1, list(log_probs.size())[-1])
+
+        target, idx_unsort = torch_util.pack_padded_sequence(
+            autograd.Variable(torch.LongTensor(target)).cuda(GPU_INDEX),
+            lengths, batch_firse=True, GPU_INDEX=GPU_INDEX)
+        target, _ = torch_util.pad_packed_sequence(target, idx_unsort, pad_value=PAD_TOKEN, batch_firse=True,
+                                                   GPU_INDEX=GPU_INDEX)
+
+        loss = loss_function(batch_log_probs, target.view(-1))
+        total_loss += loss.data
+        steps += torch.sum(lengths.data)
+        topk_accuracy = calculate_accuracy_of_code_completion(batch_log_probs, target, ignore_token=PAD_TOKEN, gpu_index=GPU_INDEX)
+        if accuracy_dict is None:
+            accuracy_dict = topk_accuracy
+        else:
+            for k, v in topk_accuracy.items():
+                accuracy_dict[k] += topk_accuracy[k]
+    accuracy_dict = {k: float(v)/steps.item() for k, v in accuracy_dict.items()}
+    return total_loss / steps, accuracy_dict
+
+
 def only_evaluate(data,
                   keyword_num,
                   vocabulary,
@@ -730,7 +770,7 @@ def only_evaluate(data,
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
 
     torch_util.load_model(model, save_path)
-    test_loss = evaluate(model, test_dataset, batch_size, loss_function)
+    test_loss, top_k_accuracy = accuracy_evaluate(model, test_dataset, batch_size, loss_function)
     best_test_perplexity = torch.exp(test_loss).item()
     print(
         "load the previous mode, test perplexity is :{}".format(
@@ -738,6 +778,9 @@ def only_evaluate(data,
     # print(prof)
     print("The model {} test perplexity is {}".
           format(saved_name, best_test_perplexity))
+    print("The top k accuracy:")
+    for k, v in top_k_accuracy.items():
+        print("{}：{}".format(k, v))
 
 
 if __name__ == '__main__':
