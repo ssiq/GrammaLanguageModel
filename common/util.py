@@ -741,5 +741,10 @@ class MaskList(collections.Sequence):
 
 
 def transform_id_to_token(one_sequence_ids, id_to_word_fn, offset=0):
+    # if not isinstance(one_sequence_ids[0], int):
+    #     one_sequence_ids = [i.item() for i in one_sequence_ids]
+    # if isinstance(one_sequence_ids, int):
+    #     pass
+    # else:
     tokens = [id_to_word_fn(i+offset) for i in one_sequence_ids]
     return tokens

@@ -30,6 +30,8 @@ class Vocabulary(object):
             return self.word_to_id_dict[self.unk]
 
     def id_to_word(self, i):
+        if i not in self.id_to_word_dict.keys():
+            print('')
         return self.id_to_word_dict[i]
 
     def parse_text(self, texts, use_position_label = False):

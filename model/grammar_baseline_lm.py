@@ -21,6 +21,7 @@ from c_code_processer.fake_c_header.extract_identifier import extract_fake_c_hea
 from c_code_processer.slk_parser import SLKProductionVocabulary, C99LabelVocabulary, C99SLKConstants
 from common import torch_util, util
 from common.constants import pre_defined_c_tokens_map, CACHE_DATA_PATH
+from common.torch_util import calculate_accuracy_of_code_completion
 from common.util import show_process_map, generate_mask, padded_to_length, key_transform, FlatMap, data_loader, CopyMap, \
     disk_cache, inplace_show_process_map
 from embedding.wordembedding import Vocabulary, load_vocabulary, load_keyword_identifier_split_vocabulary
@@ -577,18 +578,125 @@ def load_parsed_data():
     return res, keyword_num, vocabulary
 
 
+def accuracy_evaluate(model,
+                      dataset,
+                      batch_size,
+                      loss_function,):
+    total_loss = torch.Tensor([0]).cuda(GPU_INDEX)
+    steps = torch.Tensor([0]).cuda(GPU_INDEX)
+    accuracy_dict = None
+    for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True, drop_last=True):
+        lengths, target, terminal_mask, tokens, has_identifier\
+            = parse_batch_data(
+            batch_data)
+        log_probs = model.forward(tokens,
+                                  terminal_mask,
+                                  lengths, has_identifier)
+
+        batch_log_probs = log_probs.contiguous().view(-1, list(log_probs.size())[-1])
+
+        target, idx_unsort = torch_util.pack_padded_sequence(
+            autograd.Variable(torch.LongTensor(target)).cuda(GPU_INDEX),
+            lengths, batch_firse=True, GPU_INDEX=GPU_INDEX)
+        target, _ = torch_util.pad_packed_sequence(target, idx_unsort, pad_value=PAD_TOKEN, batch_firse=True,
+                                                   GPU_INDEX=GPU_INDEX)
+
+        loss = loss_function(batch_log_probs, target.view(-1))
+        total_loss += loss.data
+        steps += torch.sum(lengths.data)
+        # print("target size:{}".format(target.size()))
+        # print("batch log size:{}".format(log_probs.size()))
+        topk_accuracy = calculate_accuracy_of_code_completion(log_probs, target, ignore_token=PAD_TOKEN, gpu_index=GPU_INDEX)
+        if accuracy_dict is None:
+            accuracy_dict = topk_accuracy
+        else:
+            for k, v in topk_accuracy.items():
+                accuracy_dict[k] += topk_accuracy[k]
+    accuracy_dict = {k: float(v)/steps.item() for k, v in accuracy_dict.items()}
+    return total_loss / steps, accuracy_dict
+
+
+def load_test_data():
+    # cache_path = os.path.join(CACHE_DATA_PATH, "scope_grammar_language_model_parsed_test_data.pkl")
+    # print("cached_path:{}".format(cache_path))
+    # if os.path.isfile(cache_path):
+    #     with open(cache_path, 'rb') as handle:
+    #         print("load cache from:{}".format(cache_path))
+    #         res, keyword_num, vocabulary = pickle.load(handle)
+    # else:
+    data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name()
+    for d, n in zip(data, ["train", "val", "test"]):
+        print("There are {} raw data in the {} dataset".format(len(d), n))
+    data = data[-1:]
+    res, keyword_num, vocabulary = transform_data_from_df_to_dataset(data,)
+        # with open(cache_path, 'wb') as handle:
+        #     print("dump cache from:{}".format(cache_path))
+        #     pickle.dump([res, keyword_num, vocabulary], handle)
+    print("parsed test data size:{}".format(len(res)))
+    return res, keyword_num, vocabulary
+
+
+def only_evaluate(data,
+                  keyword_num,
+                  vocabulary,
+                  batch_size,
+                  embedding_dim,
+                  hidden_state_size,
+                  rnn_num_layer,
+                  learning_rate,
+                  epoches,
+                  saved_name,
+                  stack_size,
+                  load_previous_model=False):
+    save_path = os.path.join(config.save_model_root, saved_name)
+    # for d in data:
+    #     def get_i(i):
+    #         return d[i]
+    #     show_process_map(get_i, range(len(d)))
+    # for d, n in zip(data, ["train", "val", "test"]):
+    #     print("There are {} parsed data in the {} dataset".format(len(d), n))
+    test_dataset = data
+
+    loss_function = nn.CrossEntropyLoss(size_average=False, ignore_index=PAD_TOKEN)
+    model = ScopeGrammarLanguageModel(
+        vocabulary.vocabulary_size,
+        embedding_dim,
+        hidden_state_size,
+        rnn_num_layer,
+        keyword_num,
+        batch_size,
+    )
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+
+    torch_util.load_model(model, save_path)
+    test_loss, top_k_accuracy = accuracy_evaluate(model, test_dataset, batch_size, loss_function)
+    best_test_perplexity = torch.exp(test_loss).item()
+    print(
+        "load the previous mode, test perplexity is :{}".format(
+                                                                                             best_test_perplexity))
+    # print(prof)
+    print("The model {} test perplexity is {}".
+          format(saved_name, best_test_perplexity))
+    print("The top k accuracy:")
+    for k, v in top_k_accuracy.items():
+        print("{}：{}".format(k, v))
+
 if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.fastest = True
-    data, keyword_num, vocabulary = load_parsed_data()
+    data, keyword_num, vocabulary = load_test_data()
+    # only_evaluate(data, keyword_num, vocabulary, 4, 100, 100, 3, 0.01, 50, "grammar_baseline_language_model_1.pkl", None,
+    #               load_previous_model=True)
+    # data, keyword_num, vocabulary = load_parsed_data()
     # print(data[0]['code'][0])
-    train_and_evaluate(data, keyword_num, vocabulary, 16, 100, 100, 3, 0.01, 50, "grammar_baseline_language_model_1.pkl",
-                       load_previous_model=False)
+    # train_and_evaluate(data, keyword_num, vocabulary, 16, 100, 100, 3, 0.01, 50, "grammar_baseline_language_model_1.pkl",
+    #                    load_previous_model=False)
     # The model c89_grammar_lm_1.pkl best valid perplexity is 2.7838220596313477 and test perplexity is 2.7718544006347656
-    train_and_evaluate(data, keyword_num, vocabulary, 16, 200, 200, 3, 0.01, 50, "grammar_baseline_language_model_2.pkl",
-                       load_previous_model=False)
+    # train_and_evaluate(data, keyword_num, vocabulary, 16, 200, 200, 3, 0.01, 50, "grammar_baseline_language_model_2.pkl",
+    #                    load_previous_model=False)
     # The model c89_grammar_lm_2.pkl best valid perplexity is 3.062429189682007 and test perplexity is 3.045041799545288
-    train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 3, 0.01, 50, "grammar_baseline_language_model_3.pkl",
-                       load_previous_model = False)
+    # train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 3, 0.01, 50, "grammar_baseline_language_model_3.pkl",
+    #                    load_previous_model = False)
     # The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504

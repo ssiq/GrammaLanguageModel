@@ -8,8 +8,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from tensorflow.python.util.nest import map_structure
+from toolz.sandbox import unzip
 from torch.utils.data import Dataset
 from torchvision import transforms
+import more_itertools
 
 import numpy as np
 import pandas as pd
@@ -17,18 +19,21 @@ import pandas as pd
 import os
 
 import config
+from c_code_processer.buffered_clex import BufferedCLex
 from c_code_processer.code_util import LeafToken
 from c_code_processer.fake_c_header.extract_identifier import extract_fake_c_header_identifier
-from c_code_processer.slk_parser import SLKProductionVocabulary, C99LabelVocabulary, C99SLKConstants
+from c_code_processer.slk_parser import SLKProductionVocabulary, C99LabelVocabulary, C99SLKConstants, \
+    monitored_slk_parse
 from common import torch_util, util
 from common.constants import pre_defined_c_tokens_map, CACHE_DATA_PATH
-from common.torch_util import calculate_accuracy_of_code_completion
+from common.torch_util import calculate_accuracy_of_code_completion, get_predict_and_target_tokens
 from common.util import show_process_map, generate_mask, padded_to_length, key_transform, FlatMap, data_loader, CopyMap, \
     disk_cache, inplace_show_process_map
 from embedding.wordembedding import Vocabulary, load_vocabulary, load_keyword_identifier_split_vocabulary
 from read_data.load_parsed_data import get_token_vocabulary, get_vocabulary_id_map_with_keyword, \
     read_monitored_parsed_c99_slk_top_down_code, load_positioned_keyword_identifier_split_vocabulary, \
     read_monitored_parsed_c99_slk_top_down_code_without_consistent_name
+from read_data.read_example_code import read_code_from_file
 
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 PAD_TOKEN = -1
@@ -637,6 +642,14 @@ def train_and_evaluate(data,
 
 
 def transform_data_from_df_to_dataset(data, stack_size):
+    keyword_num, vocabulary, transforms_fn = get_transform(stack_size)
+    generate_dataset = lambda df: CCodeDataSet(df, vocabulary, stack_size, transforms_fn)
+    res = generate_dataset(data[0])
+    del data[0]
+    return res, keyword_num, vocabulary
+
+
+def get_transform(stack_size):
     vocabulary, keyword_num = load_keyword_identifier_split_vocabulary(get_token_vocabulary, [BEGIN], [END], UNK)
     print("vocab_size:{}".format(vocabulary.vocabulary_size))
     print("The max token id:{}".format(max(vocabulary.word_to_id_dict.values())))
@@ -658,10 +671,7 @@ def transform_data_from_df_to_dataset(data, stack_size):
         PadMap(keyword_num, stack_size),
         # IsNone("Pad Map"),
     ])
-    generate_dataset = lambda df: CCodeDataSet(df, vocabulary, stack_size, transforms_fn)
-    res = generate_dataset(data[0])
-    del data[0]
-    return res, keyword_num, vocabulary
+    return keyword_num, vocabulary, transforms_fn
 
 
 # @disk_cache(basename="scope_grammar_language_model_load_parsed_data", directory=CACHE_DATA_PATH)
@@ -677,32 +687,37 @@ def load_parsed_data(stack_size):
 
 
 def load_test_data(stack_size, ):
-    cache_path = os.path.join(CACHE_DATA_PATH, "scope_grammar_language_model_parsed_test_data.pkl")
-    print("cached_path:{}".format(cache_path))
+    # cache_path = os.path.join(CACHE_DATA_PATH, "scope_grammar_language_model_parsed_test_data.pkl")
+    # print("cached_path:{}".format(cache_path))
     # if os.path.isfile(cache_path):
     #     with open(cache_path, 'rb') as handle:
     #         print("load cache from:{}".format(cache_path))
     #         res, keyword_num, vocabulary = pickle.load(handle)
     # else:
-    data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name()
+    data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name(True)
     for d, n in zip(data, ["train", "val", "test"]):
         print("There are {} raw data in the {} dataset".format(len(d), n))
     data = data[-1:]
+    codes = data[0]['code']
     res, keyword_num, vocabulary = transform_data_from_df_to_dataset(data, stack_size)
         # with open(cache_path, 'wb') as handle:
         #     print("dump cache from:{}".format(cache_path))
         #     pickle.dump([res, keyword_num, vocabulary], handle)
     print("parsed test data size:{}".format(len(res)))
-    return res, keyword_num, vocabulary
+    return res, keyword_num, vocabulary, codes
 
 
 def accuracy_evaluate(model,
                       dataset,
                       batch_size,
-                      loss_function,):
+                      loss_function,
+                      vocabulary):
     total_loss = torch.Tensor([0]).cuda(GPU_INDEX)
     steps = torch.Tensor([0]).cuda(GPU_INDEX)
     accuracy_dict = None
+    sample_predict = []
+    sample_target = []
+    sample_prob = []
     for batch_data in data_loader(dataset, batch_size=batch_size, is_shuffle=True, drop_last=True):
         identifier_scope_mask, is_identifier, lengths, target, terminal_mask, tokens, update_mask, has_identifier\
             = parse_batch_data(
@@ -715,7 +730,7 @@ def accuracy_evaluate(model,
                                   lengths, has_identifier)
 
         batch_log_probs = log_probs.contiguous().view(-1, list(log_probs.size())[-1])
-
+        ori_target = target
         target, idx_unsort = torch_util.pack_padded_sequence(
             autograd.Variable(torch.LongTensor(target)).cuda(GPU_INDEX),
             lengths, batch_firse=True, GPU_INDEX=GPU_INDEX)
@@ -725,17 +740,29 @@ def accuracy_evaluate(model,
         loss = loss_function(batch_log_probs, target.view(-1))
         total_loss += loss.data
         steps += torch.sum(lengths.data)
-        topk_accuracy = calculate_accuracy_of_code_completion(batch_log_probs, target, ignore_token=PAD_TOKEN, gpu_index=GPU_INDEX)
+        # print("target size:{}".format(target.size()))
+        # print("batch log size:{}".format(log_probs.size()))
+        topk_accuracy = calculate_accuracy_of_code_completion(log_probs, target, ignore_token=PAD_TOKEN, gpu_index=GPU_INDEX)
         if accuracy_dict is None:
             accuracy_dict = topk_accuracy
         else:
             for k, v in topk_accuracy.items():
                 accuracy_dict[k] += topk_accuracy[k]
+        for l, p, t in zip(lengths, log_probs, ori_target):
+            p = p[:l]
+            p = torch.unsqueeze(p, dim=0)
+            a, b, pro = get_predict_and_target_tokens(p, [t[:l]], vocabulary.id_to_word, k=5)
+            sample_predict.append(a)
+            sample_target.append(b)
+            sample_prob.append(pro)
     accuracy_dict = {k: float(v)/steps.item() for k, v in accuracy_dict.items()}
-    return total_loss / steps, accuracy_dict
+    sample_predict = more_itertools.flatten(sample_predict)
+    sample_target = more_itertools.flatten(sample_target)
+    sample_prob = more_itertools.flatten(sample_prob)
+    return total_loss / steps, accuracy_dict, sample_predict, sample_target, sample_prob, steps
 
 
-def only_evaluate(data,
+def only_evaluate(data, codes,
                   keyword_num,
                   vocabulary,
                   batch_size,
@@ -766,11 +793,10 @@ def only_evaluate(data,
         stack_size,
         batch_size,
     )
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
 
     torch_util.load_model(model, save_path)
-    test_loss, top_k_accuracy = accuracy_evaluate(model, test_dataset, batch_size, loss_function)
+    test_loss, top_k_accuracy, sample_predict, sample_target, sample_prob, steps = accuracy_evaluate(model, test_dataset, batch_size, loss_function,
+                                                                                 vocabulary)
     best_test_perplexity = torch.exp(test_loss).item()
     print(
         "load the previous mode, test perplexity is :{}".format(
@@ -782,6 +808,109 @@ def only_evaluate(data,
     for k, v in top_k_accuracy.items():
         print("{}：{}".format(k, v))
 
+    i = 0
+    for pre, tar, prob, code in zip(sample_predict, sample_target, sample_prob, codes):
+        print('{} in step {} target token: {}'.format(i, steps.item(), code))
+        for p, t, pr in zip(pre, tar, prob):
+            print("{}:{}:{}".format(t, p, pr))
+        i += 1
+
+
+# def predict_on_one_code(code: str, keyword_num,
+#                   vocabulary,
+#                   batch_size,
+#                   embedding_dim,
+#                   hidden_state_size,
+#                   rnn_num_layer,
+#                   learning_rate,
+#                   epoches,
+#                   saved_name,
+#                   stack_size,
+#                   load_previous_model=False):
+#     identifier_set, type_set = extract_fake_c_header_identifier()
+#     clex = BufferedCLex(error_func=lambda self, msg, line, column: None,
+#                         on_lbrace_func=lambda: None,
+#                         on_rbrace_func=lambda: None,
+#                         type_lookup_func=lambda typ: None)
+#     clex.build()
+#     vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map_with_keyword, [BEGIN], [END], UNK)
+#     print("the size of predefined_identifer:{}".format(len(identifier_set)))
+#     print("the size of typeset:{}".format(len(type_set)))
+#     parse_fn = monitored_slk_parse(clex=clex, predefined_identifer=identifier_set, predefined_typename=type_set,
+#                                    vocabulary=vocabulary)
+#     code_df = pd.DataFrame({"code": [code, code]})
+#     parsed_code = show_process_map(parse_fn, code_df['code'],
+#                                    error_default_value=tuple([None, ] * 7))
+#     parsed_code = unzip(parsed_code)
+#     code_df['parse_tree'] = list(parsed_code[0])
+#     code_df['tokens'] = list(parsed_code[1])
+#     code_df['consistent_identifier'] = list(parsed_code[2])
+#     code_df['identifier_scope_index'] = list(parsed_code[3])
+#     code_df['is_identifier'] = list(parsed_code[4])
+#     code_df['max_scope_list'] = list(parsed_code[5])
+#     code_df['consistent_typename'] = list(parsed_code[6])
+#     keyword_num, vocabulary, transforms_fn = get_transform(stack_size)
+#     sample = CCodeDataSet(code_df, vocabulary, stack_size, transforms_fn)[0]
+#     sample = {k: [v] for k, v in sample.items()}
+#     # print(sample)
+#     save_path = os.path.join(config.save_model_root, saved_name)
+#     model = ScopeGrammarLanguageModel(
+#         vocabulary.vocabulary_size,
+#         embedding_dim,
+#         hidden_state_size,
+#         rnn_num_layer,
+#         keyword_num,
+#         stack_size,
+#         batch_size,
+#     )
+#     torch_util.load_model(model, save_path)
+#     identifier_scope_mask, is_identifier, lengths, target, terminal_mask, tokens, update_mask, has_identifier \
+#         = parse_batch_data(
+#         sample)
+#     log_probs = model.forward(tokens,
+#                               identifier_scope_mask,
+#                               is_identifier,
+#                               update_mask,
+#                               terminal_mask,
+#                               lengths, has_identifier)
+#
+#     target, idx_unsort = torch_util.pack_padded_sequence(
+#         autograd.Variable(torch.LongTensor(target)).cuda(GPU_INDEX),
+#         lengths, batch_firse=True, GPU_INDEX=GPU_INDEX)
+#     target, _ = torch_util.pad_packed_sequence(target, idx_unsort, pad_value=PAD_TOKEN, batch_firse=True,
+#                                                GPU_INDEX=GPU_INDEX)
+#     predict_tokens, target_tokens = get_predict_and_target_tokens(log_probs, target, vocabulary.id_to_word, k=5)
+#     for a, b in zip(predict_tokens[0], target_tokens[0]):
+#         print("{}:{}".format(a, b))
+
+
+def load_example_code_for_(stack_size):
+    code = read_code_from_file()
+    identifier_set, type_set = extract_fake_c_header_identifier()
+    clex = BufferedCLex(error_func=lambda self, msg, line, column: None,
+                        on_lbrace_func=lambda: None,
+                        on_rbrace_func=lambda: None,
+                        type_lookup_func=lambda typ: None)
+    clex.build()
+    vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map_with_keyword, [BEGIN], [END], UNK)
+    print("the size of predefined_identifer:{}".format(len(identifier_set)))
+    print("the size of typeset:{}".format(len(type_set)))
+    parse_fn = monitored_slk_parse(clex=clex, predefined_identifer=identifier_set, predefined_typename=type_set,
+                                   vocabulary=vocabulary)
+    code_df = pd.DataFrame({"code": [code, code]})
+    parsed_code = show_process_map(parse_fn, code_df['code'],
+                                   error_default_value=tuple([None, ] * 7))
+    parsed_code = unzip(parsed_code)
+    code_df['parse_tree'] = list(parsed_code[0])
+    code_df['tokens'] = list(parsed_code[1])
+    code_df['consistent_identifier'] = list(parsed_code[2])
+    code_df['identifier_scope_index'] = list(parsed_code[3])
+    code_df['is_identifier'] = list(parsed_code[4])
+    code_df['max_scope_list'] = list(parsed_code[5])
+    code_df['consistent_typename'] = list(parsed_code[6])
+    keyword_num, vocabulary, transforms_fn = get_transform(stack_size)
+    sample = CCodeDataSet(code_df, vocabulary, stack_size, transforms_fn)
+    return sample, keyword_num, vocabulary, code_df['code']
 
 if __name__ == '__main__':
     torch.backends.cudnn.enabled = True
@@ -789,8 +918,13 @@ if __name__ == '__main__':
     torch.backends.cudnn.fastest = True
 
     stack_size = 10
-    data, keyword_num, vocabulary = load_test_data(stack_size)
-    only_evaluate(data, keyword_num, vocabulary, 16, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
+    # code = read_code_from_file()
+    # data, keyword_num, vocabulary, codes = load_test_data(stack_size)
+    data, keyword_num, vocabulary, codes = load_example_code_for_(stack_size)
+    # predict_on_one_code(code, keyword_num, vocabulary, 2, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
+    #               stack_size,
+    #               load_previous_model=True)
+    only_evaluate(data, codes, keyword_num, vocabulary, 2, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
                   stack_size,
                   load_previous_model=True)
     # print(data[0]['code'][0])
