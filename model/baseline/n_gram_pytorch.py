@@ -111,12 +111,16 @@ def evaluate(model, X, y, batch_size, loss_function, is_accuracy=False, is_examp
 
         if is_example:
             new_target_idx = [[i] for i in target_idxs]
-            predict_tokens, target_tokens = get_predict_and_target_tokens(log_probs.unsqueeze(dim=1), new_target_idx, id_to_word_fn, k=1)
-            i = 0
-            for pre, tar in zip(predict_tokens, target_tokens):
-                print('{} in step {} predict token: {}'.format(i, steps, pre))
-                print('{} in step {} target token: {}'.format(i, steps, tar))
-                i += 1
+            predict_tokens, target_tokens, softmaxed_probs = get_predict_and_target_tokens(log_probs.unsqueeze(dim=1), new_target_idx, id_to_word_fn, k=5)
+            for pre, tar, sof in zip(predict_tokens, target_tokens, softmaxed_probs):
+                # i = 0
+                for predict_one_tok, target_one_tok, predict_softmax in zip(pre, tar, sof):
+                    print('{} : {} : {}'.format(target_one_tok, predict_one_tok, predict_softmax))
+            # for pre, tar in zip(predict_tokens, target_tokens, softmaxed_probs):
+            #
+            #     print('{} in step {} predict token: {}'.format(i, steps, pre))
+            #     print('{} in step {} target token: {}'.format(i, steps, tar))
+            #     i += 1
             continue
 
         if is_accuracy:
@@ -191,7 +195,6 @@ def train_and_evaluate_n_gram_language_model(embedding_dim,
     if is_load:
         print('load model from {}'.format(save_path))
         torch_util.load_model(model, save_path)
-        print(model.state_dict())
         if not is_example:
             valid_loss = evaluate(model, valid_X, valid_y, batch_size, loss_function)
             test_loss = evaluate(model, test_X, test_y, batch_size, loss_function)
@@ -238,13 +241,13 @@ def train_and_evaluate_n_gram_language_model(embedding_dim,
 
 
 if __name__ == '__main__':
-    context_size_list = [2, 3, 4, 5, 6, 7, 8]
+    context_size_list = [2, 3, 4, 5]
     # for ctx in context_size_list:
     #     save_name = "neural_n_gram_" + str(ctx-2) + '.pkl'
     #     train_and_evaluate_n_gram_language_model(embedding_dim=100, context_size=ctx, layer_num=3,
     #                                              hidden_size=100, learning_rate=0.001, batch_size=128,
-    #                                              epoches=20, saved_name=save_name, is_load=False,
-    #                                              is_accuracy=False, is_example=False)
+    #                                              epoches=20, saved_name=save_name, is_load=True,
+    #                                              is_accuracy=True, is_example=False)
     # train_and_evaluate_n_gram_language_model(embedding_dim=100, context_size=3, layer_num=3,
     #                                          hidden_size=100, learning_rate=0.001, batch_size=128,
     #                                          epoches=30, saved_name="neural_n_gram_1.pkl", is_load=False, is_accuracy=False)
@@ -257,6 +260,6 @@ if __name__ == '__main__':
 
     train_and_evaluate_n_gram_language_model(embedding_dim=100, context_size=5, layer_num=3,
                                              hidden_size=100, learning_rate=0.001, batch_size=128,
-                                             epoches=20, saved_name="neural_n_gram_3.pkl", is_load=False, is_accuracy=True, is_example=False)
+                                             epoches=20, saved_name="neural_n_gram_3.pkl", is_load=True, is_accuracy=False, is_example=True)
     # The model neural_n_gram_3.pkl best valid perplexity is 5.920135021209717 and test perplexity is 5.940866947174072
     pass

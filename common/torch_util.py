@@ -208,20 +208,6 @@ def calculate_accuracy_of_code_completion(log_probs, target, ignore_token=None, 
     return result
 
 
-# def get_predict_and_target_tokens(log_probs, target, id_to_word_fn, k=1, offset=0):
-#     _, top_k_ids = torch.topk(log_probs, dim=2, k=k)
-#     top_k_ids = top_k_ids.tolist()
-#     batch_predict = []
-#     batch_target = []
-#     for i, one in enumerate(top_k_ids):
-#         # one shape = [seq_len, k]
-#         predict_tokens = [transform_id_to_token(one_position, id_to_word_fn, offset=offset) for one_position in one]
-#         out_token = transform_id_to_token(target[i], id_to_word_fn, offset=offset)
-#         batch_predict += [predict_tokens]
-#         batch_target += [out_token]
-#     return batch_predict, batch_target
-
-
 def get_predict_and_target_tokens(log_probs, target, id_to_word_fn, k=1, offset=0):
     dim_len = len(log_probs.shape)
     softmaxed_probs = F.softmax(log_probs, dim=dim_len - 1)
@@ -236,6 +222,7 @@ def get_predict_and_target_tokens(log_probs, target, id_to_word_fn, k=1, offset=
         batch_predict += [predict_tokens]
         batch_target += [out_token]
     return batch_predict, batch_target, top_k_probs.tolist()
+
 
 def calculate_mrr_of_code_completion(log_probs, target, batch_size, save_name, topk=15):
     pass

@@ -12,11 +12,13 @@ from read_data.load_parsed_data import read_filtered_without_include_code_tokens
 from nltk.model.ngram import LaplaceNgramModel
 from nltk.model.counter import build_vocabulary, NgramCounter
 import more_itertools
+import math
+import numpy as np
 
 from read_data.read_example_code import read_example_code_tokens
 
-is_debug = False
-order = 8
+is_debug = True
+order = 3
 start = '<s>'
 end = '</s>'
 unk = '<unk>'
@@ -124,8 +126,6 @@ def transform_counter_order(order_dict, vocab_size, word_to_id_fn):
     print('before transform counter: {}'.format(len(order_dict)))
     step = 0
     for ctx in order_dict:
-        if 'main' in ctx:
-            print(order_dict[ctx])
         if step % 100 == 0:
             print('transform step: {}'.format(step))
             sys.stdout.flush()
@@ -134,6 +134,40 @@ def transform_counter_order(order_dict, vocab_size, word_to_id_fn):
         order_dict[ctx] = produce_one_token_probility(order_dict[ctx], vocab_size, word_to_id_fn)
     print('end transform counter: {}'.format(len(order_dict)))
     return order_dict
+
+
+def self_sequence_cross_entropy(probs, target, size_average=True):
+    total_loss = 0
+    for p, t in zip(probs, target):
+        pro = p[t]
+        if pro <= 0:
+            pro = 1/len(p)
+        total_loss += (-math.log(pro))
+    if size_average:
+        return total_loss/len(probs)
+    return total_loss
+
+
+def draw_distribute_prob(probs):
+    import plotly.plotly as py
+    import plotly.graph_objs as go
+
+    data = [go.Histogram(x=probs)]
+
+    # py.iplot(data, filename='basic histogram')
+
+    import plotly.offline
+    import plotly.graph_objs as go
+
+
+    layout = go.Layout(
+        xaxis=dict(
+            range=[0, 1]
+        ),
+    )
+
+    plotly.offline.plot({"data": [go.Histogram(x=probs)],'layout': layout},
+                        image='jpeg', image_filename='test')
 
 
 def evaluate_one_text(counter, test_data, cur_order, word_to_id_fn, vocab_size, is_example=False, id_to_word_fn=None):
@@ -147,7 +181,14 @@ def evaluate_one_text(counter, test_data, cur_order, word_to_id_fn, vocab_size, 
     no_exist_probs += [1/(vocab_size-2)]
     no_exist_probs += [0]
 
-    order_dict = transform_counter_order(counter.ngrams[cur_order], vocab_size, word_to_id_fn)
+    cur_order_dict = counter.ngrams[cur_order]
+    # order_dict = transform_counter_order(counter.ngrams[cur_order], vocab_size, word_to_id_fn)
+
+    total_loss = 0
+
+    total_prob = 0
+
+    total_prob_list = []
 
     for text in test_data:
         step += 1
@@ -155,16 +196,28 @@ def evaluate_one_text(counter, test_data, cur_order, word_to_id_fn, vocab_size, 
         probs = []
         target = [word_to_id_fn(word) for word in text]
         target += [end_id]
+        word_steps = 0
         for ng in ngrams(text, cur_order, **ngrams_kwargs):
             ctx, word = ng[:-1], ng[-1]
             if end in ctx:
                 break
 
+
             # one_position_prob = produce_one_token_probility(order_dict[ctx], vocab_size, word_to_id_fn)
-            one_position_prob = order_dict[ctx]
+            if len(cur_order_dict[ctx]) < vocab_size:
+                cur_order_dict[ctx] = produce_one_token_probility(cur_order_dict[ctx], vocab_size, word_to_id_fn)
+            one_position_prob = cur_order_dict[ctx]
             if len(one_position_prob) != vocab_size:
+                print('one_position_prob no exist')
                 one_position_prob = no_exist_probs
+            print('{} step {} word probs: {}'.format(step, word_steps, one_position_prob[target[word_steps]]))
             probs += [one_position_prob]
+            total_prob += one_position_prob[target[word_steps]]
+
+            first_take_position = np.argmax(one_position_prob)
+            if first_take_position == target[word_steps]:
+                total_prob_list += [one_position_prob[target[word_steps]]]
+            word_steps += 1
         if is_example:
             predict_tokens, target_tokens = get_predict_and_target_tokens(torch.Tensor([probs]), [target], id_to_word_fn, k=1)
             i = 0
@@ -173,23 +226,34 @@ def evaluate_one_text(counter, test_data, cur_order, word_to_id_fn, vocab_size, 
                 print('{} in step {} target token: {}'.format(i, step, tar))
                 i += 1
             continue
+        loss = self_sequence_cross_entropy(probs, target, size_average=False)
+        total_loss += loss
+
         accuracy = calculate_accuracy_of_code_completion(torch.Tensor([probs]), torch.LongTensor([target]))
         batch_count += len(target)
         for key, value in accuracy.items():
             accuracy_dict[key] = accuracy_dict.get(key, 0) + value
-        if step % 100 == 0:
-            print('in step : {}, total: {}, accuracy: {}'.format(step, len(target), accuracy))
+        if step % 1 == 0:
+            print('in step : {}, total: {}, accuracy: {}, loss: {}'.format(step, len(target), accuracy, loss/len(target)))
             sys.stdout.flush()
             sys.stderr.flush()
+    draw_distribute_prob(total_prob_list)
+    print('the order {} total mean loss: {}'.format(cur_order, total_loss/batch_count))
+    print('the order {} total mean prob: {}'.format(cur_order, total_prob/batch_count))
+
     total_accuracy = {key: value / batch_count for key, value in accuracy_dict.items()}
     return total_accuracy
 
 
 def produce_one_token_probility(ctx_dict, vocab_size, word_to_id_fn):
-    one_position_prob = [0 for i in range(vocab_size)]
-    total = ctx_dict.N()
+    total = ctx_dict.N() + vocab_size
+    base_prob = 1/total
+    one_position_prob = [base_prob for i in range(vocab_size)]
+    if total <= vocab_size:
+        return one_position_prob
     for one_word in ctx_dict:
-        one_position_prob[word_to_id_fn(one_word)] = ctx_dict[one_word]/total
+        cur_id = word_to_id_fn(one_word)
+        one_position_prob[cur_id] += ctx_dict[one_word]/total
     return one_position_prob
 
 
@@ -207,7 +271,7 @@ def evaluate_counter(counter, is_example=False):
 
     del train_data
 
-    for ord in range(2, order):
+    for ord in range(2, 3):
         print('before evaluate order: {}'.format(ord))
         accuracy = evaluate_one_text(counter, test_data, ord, word_to_id_fn, vocab_size, is_example, id_to_word_fn)
         print("The order {} accuracy is {}".format(ord, accuracy))
@@ -222,12 +286,15 @@ def train_and_evaluate():
     # vocab = create_ngrams_vocabulary(train_data)
     # print('has <s>: {}'.format('<s>' in vocab))
     # print(counter.ngrams[3][('char', 'trump')][','], counter.ngrams[3][('char', 'trump')].N())
-    evaluate_counter(counter, is_example=True)
+    evaluate_counter(counter, is_example=False)
 
 
 
 if __name__ == '__main__':
     train_and_evaluate()
+
+    # loss = self_sequence_cross_entropy([[0.1, 0.2, 0.4, 0.3], [0.3, 0.4, 0.1, 0.2]], [1, 1], size_average=False)
+    # print(loss)
 
     # train_data, valid_data, test_data = [d[:100] for d in read_filtered_without_include_code_tokens()]
     # counter = create_counter_and_train_text(train_data)

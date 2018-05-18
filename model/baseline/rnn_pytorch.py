@@ -209,12 +209,15 @@ def evaluate(model, X, y, loss_function, batch_size, is_example=False, id_to_wor
         log_probs = model.forward(inp, inp_len)
 
         if is_example:
-            predict_tokens, target_tokens = get_predict_and_target_tokens(log_probs, out, id_to_word_fn, k=1, offset=-1)
-            i = 0
-            for pre, tar in zip(predict_tokens, target_tokens):
-                print('{} in step {} predict token: {}'.format(i, steps, pre))
-                print('{} in step {} target token: {}'.format(i, steps, tar))
-                i += 1
+            predict_tokens, target_tokens, softmaxed_probs = get_predict_and_target_tokens(log_probs, out, id_to_word_fn, k=5, offset=-1)
+            for pre, tar, sof in zip(predict_tokens, target_tokens, softmaxed_probs):
+                i = 0
+                for predict_one_tok, target_one_tok, predict_softmax in zip(pre, tar, sof):
+                    print('{} : {} : {}'.format(target_one_tok, predict_one_tok, predict_softmax))
+                    # print('{} in target token: {}'.format(i, target_one_tok))
+                    # print('{} in step {} predict token: {}'.format(i, steps, pre))
+                    # print('{} in step {} target token: {}'.format(i, steps, tar))
+                    i += 1
 
         batch_log_probs = log_probs.view(-1, list(log_probs.size())[-1])
         out = list(more_itertools.flatten(out))
@@ -334,7 +337,7 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
     if load_path is not None:
         load_path = os.path.join(config.save_model_root, load_path)
         print('load model from {}'.format(load_path))
-        torch_util.load_model(model, load_path)
+        torch_util.load_model(model, load_path, map_location={'cuda:1':'cuda:0'})
     print('after create model')
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
     print('after create optimizer')
@@ -405,10 +408,10 @@ if __name__ == '__main__':
     # torch.backends.cudnn.benchmark = True
     print('start')
 
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl', is_accuracy=True, is_example=False)
-    # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_2.pkl', load_path='neural_lstm_2.pkl', is_accuracy=False, is_example=True)
-    # train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl', is_accuracy=False, is_example=True)
-    # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_4.pkl', load_path='neural_lstm_4.pkl', is_accuracy=False, is_example=True)
+    # train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl', is_accuracy=True, is_example=False)
+    # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_2.pkl', load_path='neural_lstm_2.pkl', is_accuracy=True, is_example=False)
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl', is_accuracy=False, is_example=True)
+    # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_4.pkl', load_path='neural_lstm_4.pkl', is_accuracy=True, is_example=False)
 
     # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=3, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=10, saved_name='neural_lstm_5.pkl', load_path='neural_lstm_5.pkl')
         # final train perplexity of 9.800065994262695,  valid perplexity of 10.168289184570312, test perplexity of 10.024857521057129
