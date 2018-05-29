@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch
 import typing
 from torch.nn.modules.rnn import RNNCellBase
+from torch.nn.utils.rnn import PackedSequence
 
 from common.util import transform_id_to_token
 
@@ -160,8 +161,6 @@ class MultiRNNCell(RNNCellBase):
         return h_i, res_h
 
 
-
-
 def calculate_accuracy_of_code_completion(log_probs, target, ignore_token=None, topk_range=(1, 15), gpu_index=None):
     """
     compare the log probility of all possible token with target token. calculate the accuracy of the code.
@@ -170,7 +169,7 @@ def calculate_accuracy_of_code_completion(log_probs, target, ignore_token=None, 
     :param target:
     :param ignore_token:
     :param save_name:
-    :param topk_range:
+    :param topk_range: (min_k, max_k)
     :return:
     """
     # log_probs_size = [batch_size, seq_len, vocab]
@@ -178,18 +177,36 @@ def calculate_accuracy_of_code_completion(log_probs, target, ignore_token=None, 
         target = torch.LongTensor(target)
         if gpu_index is not None:
             target = target.cuda(gpu_index)
+    if isinstance(log_probs, PackedSequence):
+        log_probs = log_probs.data
+    if isinstance(target, PackedSequence):
+        target = target.data
 
     batch_size = log_probs.shape[0]
-    if len(log_probs.shape) == 2:
-        log_probs = log_probs.unsqueeze(dim=1)
+    vocab_size = log_probs.shape[-1]
+
+    log_probs = log_probs.view(-1, vocab_size)
+    target = target.view(-1)
+
+    if log_probs.shape[0] != target.shape[0]:
+        print('different shape between log_probs and target. log_probs: {}, target: {}'.format(log_probs.shape, target.shape))
+        raise Exception('different shape between log_probs and target. log_probs: {}, target: {}'.format(log_probs.shape, target.shape))
+
+    # if len(log_probs.shape) == 2:
+    #     log_probs = log_probs.unsqueeze(dim=1)
 
     max_topk = max(*topk_range)
+    min_topk = min(*topk_range)
+    if min_topk < 1:
+        min_topk = 1
+    if max_topk < 1:
+        max_topk = 1
 
     # top_k_ids_size = [batch_size, seq_len, max_topk]
-    top_k_ids = torch.topk(log_probs, dim=2, k=15)[1]
+    top_k_ids = torch.topk(log_probs, dim=1, k=max_topk)[1]
 
     # resize target to the same shape of top k ids
-    target = target.unsqueeze(dim=2)
+    target = torch.unsqueeze(target, dim=1)
     repeat_shape = [1] * len(target.shape)
     repeat_shape[-1] = max_topk
     repeat_target = target.repeat(*repeat_shape)
@@ -203,8 +220,8 @@ def calculate_accuracy_of_code_completion(log_probs, target, ignore_token=None, 
         equal_list = torch.where(mask, equal_list, zero_tensor)
 
     result = {}
-    for k in range(*topk_range):
-        result[k] = equal_list[:, :, 0:k].sum().item()
+    for k in range(min_topk, max_topk+1):
+        result[k] = equal_list[:, min_topk-1:k].sum().item()
     return result
 
 
@@ -224,5 +241,14 @@ def get_predict_and_target_tokens(log_probs, target, id_to_word_fn, k=1, offset=
     return batch_predict, batch_target, top_k_probs.tolist()
 
 
-def calculate_mrr_of_code_completion(log_probs, target, batch_size, save_name, topk=15):
-    pass
+if __name__ == '__main__':
+    a = [torch.Tensor([[1, 2, 3, 4, 0], [4, 3, 2, 1, 5]]),
+         torch.Tensor([[1, 2, 3, 4, 0]]),
+         torch.Tensor([[1, 2, 3, 4, 0], [4, 3, 2, 1, 5]])]
+    b = [torch.LongTensor([3, 4]),
+         torch.LongTensor([2, ]),
+         torch.LongTensor([3, 1])]
+    c, _ = pack_sequence(a)
+    d, _ = pack_sequence(b)
+    res = calculate_accuracy_of_code_completion(c, d, topk_range=(1, 3), ignore_token=-1)
+    print(res)
