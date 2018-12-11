@@ -1,9 +1,9 @@
 from read_data.read_filter_data_records import read_distinct_problem_user_compile_success_c_records, \
     read_distinct_problem_user_fake_c_random_records, read_distinct_problem_user_fake_c_common_records, \
-    read_distinct_problem_user_c_records
+    read_distinct_problem_user_c_records, read_deepfix_error_records, read_deepfix_ac_records
 from common.util import disk_cache
 from common.constants import CACHE_DATA_PATH
-from c_code_processer.code_util import extract_include_from_code, remove_include
+from c_code_processer.code_util import extract_include_from_code, remove_include, replace_include_with_blank
 
 
 def filter_frac(data_df, frac):
@@ -74,11 +74,33 @@ def read_fake_random_c_error_dataset():
     return train_df, valid_df, test_df
 
 
+@disk_cache(basename='read_deepfix_error_data', directory=CACHE_DATA_PATH)
+def read_deepfix_error_data():
+    df = read_deepfix_error_records()
+    return df
+
+
+@disk_cache(basename='read_deepfix_ac_data', directory=CACHE_DATA_PATH)
+def read_deepfix_ac_data():
+    df = read_deepfix_ac_records()
+    return df
+
+
+@disk_cache(basename='read_deepfix_ac_data_without_include', directory=CACHE_DATA_PATH)
+def read_deepfix_ac_data_without_include():
+    df = read_deepfix_ac_data()
+    df['code_with_include'] = df['code']
+    df['code'] = df['code'].map(replace_include_with_blank)
+    return df
+
+
 if __name__ == '__main__':
     # data_df = read_distinct_problem_user_compile_success_c_records()
     # print('all data df', len(data_df))
     # main_df, split_df = filter_frac(data_df, 0.1)
     # print('train_df length: {}, split_df length: {}'.format(len(main_df), len(split_df)))
-    read_distinct_problem_user_ac_c99_code_dataset()
-    read_filtered_distinct_problem_user_ac_c99_code_dataset()
-    read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()
+    # read_distinct_problem_user_ac_c99_code_dataset()
+    # read_filtered_distinct_problem_user_ac_c99_code_dataset()
+    # read_filtered_without_include_distinct_problem_user_ac_c99_code_dataset()
+    df = read_deepfix_ac_data_without_include()
+    print(df['code'].iloc[0])

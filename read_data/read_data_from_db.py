@@ -57,3 +57,10 @@ def read_train_data_all_c_error_records():
     conn = sqlite3.connect("file:{}?mode=ro".format(TRAIN_DATA_DBPATH), uri=True)
     data_df = read_data(conn, ACTUAL_C_ERROR_RECORDS)
     return data_df
+
+
+@disk_cache(basename='read_deepfix_records', directory=CACHE_DATA_PATH)
+def read_deepfix_records():
+    con = sqlite3.connect("file:{}?mode=ro".format(DEEPFIX_DB), uri=True)
+    test_df = pd.read_sql('select * from {}'.format('Code'), con)
+    return test_df

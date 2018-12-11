@@ -3,6 +3,7 @@ import functools
 import itertools
 import os
 import pickle
+import re
 import types
 from multiprocessing import Pool
 import typing
@@ -748,3 +749,45 @@ def transform_id_to_token(one_sequence_ids, id_to_word_fn, offset=0):
     # else:
     tokens = [id_to_word_fn(i+offset) for i in one_sequence_ids]
     return tokens
+
+
+def init_code(code):
+    code = code.replace('\ufeff', '').replace('\u3000', ' ')
+    code = remove_blank(code)
+    code = remove_r_char(code)
+    code = remove_comments(code)
+    code = remove_blank_line(code)
+    return code
+
+
+def remove_comments(code):
+    pattern = r"(\".*?(?<!\\)\"|\'.*?(?<!\\)\')|(/\*.*?\*/|//[^\r\n]*$)"
+    # first group captures quoted strings (double or single)
+    # second group captures comments (//single-line or /* multi-line */)
+    regex = re.compile(pattern, re.MULTILINE|re.DOTALL)
+    def _replacer(match):
+        # if the 2nd group (capturing comments) is not None,
+        # it means we have captured a non-quoted (real) comment string.
+        if match.group(2) is not None:
+            return "" # so we will return empty to remove the comment
+        else: # otherwise, we will return the 1st group
+            return match.group(1) # captured quoted-string
+    return regex.sub(_replacer, code)
+
+
+def remove_blank_line(code):
+    code = "\n".join([line for line in code.split('\n') if line.strip() != ''])
+    return code
+
+
+def remove_r_char(code):
+    code = code.replace('\r', '')
+    return code
+
+
+def remove_blank(code):
+    pattern = re.compile('''('.*?'|".*?"|[^ \t\r\f\v"']+)''')
+    mat = re.findall(pattern, code)
+    processed_code = ' '.join(mat)
+    return processed_code
+

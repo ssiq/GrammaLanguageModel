@@ -739,7 +739,7 @@ def accuracy_evaluate(model,
 
         loss = loss_function(batch_log_probs, target.view(-1))
         total_loss += loss.data
-        steps += torch.sum(lengths.data)
+        steps += torch.sum(lengths.data.cuda(GPU_INDEX).float())
         # print("target size:{}".format(target.size()))
         # print("batch log size:{}".format(log_probs.size()))
         topk_accuracy = calculate_accuracy_of_code_completion(log_probs, target, ignore_token=PAD_TOKEN, gpu_index=GPU_INDEX)
@@ -808,12 +808,12 @@ def only_evaluate(data, codes,
     for k, v in top_k_accuracy.items():
         print("{}：{}".format(k, v))
 
-    i = 0
-    for pre, tar, prob, code in zip(sample_predict, sample_target, sample_prob, codes):
-        print('{} in step {} target token: {}'.format(i, steps.item(), code))
-        for p, t, pr in zip(pre, tar, prob):
-            print("{}:{}:{}".format(t, p, pr))
-        i += 1
+    # i = 0
+    # for pre, tar, prob, code in zip(sample_predict, sample_target, sample_prob, codes):
+    #     print('{} in step {} target token: {}'.format(i, steps.item(), code))
+    #     for p, t, pr in zip(pre, tar, prob):
+    #         print("{}:{}:{}".format(t, p, pr))
+    #     i += 1
 
 
 # def predict_on_one_code(code: str, keyword_num,
@@ -895,9 +895,24 @@ def load_example_code_for_(stack_size):
     vocabulary = load_vocabulary(get_token_vocabulary, get_vocabulary_id_map_with_keyword, [BEGIN], [END], UNK)
     print("the size of predefined_identifer:{}".format(len(identifier_set)))
     print("the size of typeset:{}".format(len(type_set)))
-    parse_fn = monitored_slk_parse(clex=clex, predefined_identifer=identifier_set, predefined_typename=type_set,
-                                   vocabulary=vocabulary)
-    code_df = pd.DataFrame({"code": [code, code]})
+    # parse_fn = monitored_slk_parse(clex=clex, predefined_identifer=identifier_set, predefined_typename=type_set,
+    #                                vocabulary=vocabulary)
+    def parse_fn(x):
+        res = monitored_slk_parse(code=x, clex=clex, predefined_identifer=identifier_set, predefined_typename=type_set,
+                                  vocabulary=vocabulary)
+        if len(res[1]) > 500:
+            raise Exception
+        else:
+            return res
+
+    # read codeforce dataset
+    # code_df = pd.DataFrame({"code": [code, code]})
+
+    # read deepfix dataset
+    from read_data.read_experiment_data import read_deepfix_ac_data_without_include
+    code_df = read_deepfix_ac_data_without_include()
+    # code_df = code_df.head(100)
+
     parsed_code = show_process_map(parse_fn, code_df['code'],
                                    error_default_value=tuple([None, ] * 7))
     parsed_code = unzip(parsed_code)
@@ -924,7 +939,7 @@ if __name__ == '__main__':
     # predict_on_one_code(code, keyword_num, vocabulary, 2, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
     #               stack_size,
     #               load_previous_model=True)
-    only_evaluate(data, codes, keyword_num, vocabulary, 2, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
+    only_evaluate(data, codes, keyword_num, vocabulary, 16, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
                   stack_size,
                   load_previous_model=True)
     # print(data[0]['code'][0])
