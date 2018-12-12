@@ -7,7 +7,7 @@ import more_itertools
 
 from common.torch_util import calculate_accuracy_of_code_completion, get_predict_and_target_tokens
 from read_data.load_parsed_data import read_filtered_without_include_code_tokens, get_token_vocabulary, \
-    get_vocabulary_id_map
+    get_vocabulary_id_map, parse_c99_code_to_token
 from embedding.wordembedding import load_vocabulary
 from common.util import batch_holder, transform_id_to_token
 from common import util, torch_util
@@ -15,6 +15,7 @@ from sklearn.utils import shuffle
 import sys
 
 from read_data.read_example_code import read_example_code_tokens
+from read_data.read_experiment_data import read_deepfix_ac_data_without_include
 
 gpu_index = 0
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
@@ -71,13 +72,13 @@ class LSTMModel(nn.Module):
         inputs = torch.index_select(inputs, 0, idx_sort)
         token_lengths = list(torch.index_select(token_lengths, 0, idx_sort))
 
-        print('input_size: ', inputs.size())
+        # print('input_size: ', inputs.size())
 
         embeds = self.word_embeddings(autograd.Variable(inputs).cuda(gpu_index)).view(cur_batch_size, -1, self.embedding_dim).cuda(gpu_index)
         # print('embeds_size: {}, embeds is cuda: {}'.format(embeds.size(), embeds.is_cuda))
         embeds = embeds.view(cur_batch_size, -1, self.embedding_dim)
         embeds = self.drop(embeds).cuda(gpu_index)
-        print('embeds_size: {}, embeds is cuda: {}'.format(embeds.size(), embeds.is_cuda))
+        # print('embeds_size: {}, embeds is cuda: {}'.format(embeds.size(), embeds.is_cuda))
         # print('embeds value: {}'.format(embeds.data))
         # print('after embeds token_length: {}'.format(token_lengths))
         packed_inputs = torch.nn.utils.rnn.pack_padded_sequence(embeds, token_lengths, batch_first=True)
@@ -262,13 +263,13 @@ def model_test(model, X, y, loss_function, batch_size, topk_range=(1, 15)):
             accuracy_dict[key] = accuracy_dict.get(key, 0) + value
 
         cur_accuracy = {key:value/one_batch_count for key, value in batch_accuracy_dict.items()}
-        print('step {} accuracy: {}'.format(steps, cur_accuracy))
+        # print('step {} accuracy: {}'.format(steps, cur_accuracy))
 
         batch_log_probs = log_probs.view(-1, list(log_probs.size())[-1])
         out = list(more_itertools.flatten(out))
 
         loss = loss_function(batch_log_probs, autograd.Variable(torch.LongTensor(out)).cuda(gpu_index))
-        print('step {} loss: {}'.format(steps, loss.data))
+        # print('step {} loss: {}'.format(steps, loss.data))
         total_loss += (loss.data.cpu() * one_batch_count)
 
         if steps % 1000 == 0:
@@ -319,7 +320,8 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
 
     print('before read data')
     if is_example:
-        example_data = read_example_code_tokens()
+        # example_data = read_example_code_tokens()
+        example_data = parse_c99_code_to_token(read_deepfix_ac_data_without_include())
     elif debug:
         train_data, valid_data, test_data = [d[:100] for d in read_filtered_without_include_code_tokens()]
         print("train data size:{}".format(len(train_data)))
@@ -345,7 +347,8 @@ def train_and_evaluate_lstm_model(embedding_dim, hidden_size, num_layers, bidire
     print('before parse xy')
     if is_example:
         example_X, example_y = parse_xy(example_data, vocabulary.word_to_id)
-        evaluate(model, example_X, example_y, loss_function, batch_size, is_example, vocabulary.id_to_word)
+        model_test(model, example_X, example_y, loss_function, batch_size)
+        # evaluate(model, example_X, example_y, loss_function, batch_size, is_example, vocabulary.id_to_word)
         return
     else:
         train_X, train_y = parse_xy(train_data, vocabulary.word_to_id)
@@ -405,9 +408,16 @@ if __name__ == '__main__':
     # torch.backends.cudnn.benchmark = True
     print('start')
 
-    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl', is_accuracy=True, is_example=False)
+    # train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_1.pkl', load_path='neural_lstm_1.pkl', is_accuracy=False, is_example=True)
     # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_2.pkl', load_path='neural_lstm_2.pkl', is_accuracy=False, is_example=True)
-    # train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl', is_accuracy=False, is_example=True)
+    train_and_evaluate_lstm_model(embedding_dim=300, hidden_size=200, num_layers=1, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_3.pkl', load_path='neural_lstm_3.pkl', is_accuracy=False, is_example=True)
+    # mean accuracy per token: {1: 0.6703018311124872, 2: 0.7782182255669206, 3: 0.8286606282847532, 4: 0.8568245937535857,
+    #         5: 0.8761168451380559, 6: 0.89027575617789, 7: 0.9003703909858899, 8: 0.9078521986383211,
+    #         9: 0.9135933067861159, 10: 0.9185673200626422, 11: 0.9228149933745924, 12: 0.9262050357473869,
+    #         13: 0.9292292412899721, 14: 0.9320060454023337}
+    # mean loss per steps: tensor([3699.2546])
+    # mean loss per token: tensor([1.4702])
+    # mean perplexity: tensor(4.3501)
     # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=2, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=40, saved_name='neural_lstm_4.pkl', load_path='neural_lstm_4.pkl', is_accuracy=False, is_example=True)
 
     # train_and_evaluate_lstm_model(embedding_dim=100, hidden_size=100, num_layers=3, bidirectional=False, dropout=0.35, learning_rate=0.005, batch_size=16, epoches=10, saved_name='neural_lstm_5.pkl', load_path='neural_lstm_5.pkl')

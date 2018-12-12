@@ -954,3 +954,22 @@ if __name__ == '__main__':
     # train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 3, 0.01, 50, "scope_grammar_language_model_3.pkl",
     #                    stack_size, load_previous_model = False)
     # The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
+
+    #The result on the deepfix dataset
+    # load the previous mode, test perplexity is: 2.898280143737793
+    # The model scope_grammar_language_model_1.pkl test perplexity is 2.898280143737793
+    # The top k accuracy:
+    # 1：0.7391026245474862
+    # 2：0.8496791611390203
+    # 3：0.8931847977087842
+    # 4：0.9164829670276349
+    # 5：0.9309163342112388
+    # 6：0.9399085999241302
+    # 7：0.9461929888369427
+    # 8：0.9508202063953981
+    # 9：0.954289243536981
+    # 10：0.9570491196829402
+    # 11：0.9595009105679329
+    # 12：0.9612875733295789
+    # 13：0.9629069401455663
+    # 14：0.9642907890328599
