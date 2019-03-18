@@ -302,7 +302,8 @@ class ScopeGrammarLanguageModel(nn.Module):
                  rnn_num_layers,
                  keyword_size,
                  stack_size,
-                 batch_size):
+                 batch_size,
+                 random_init_stack_vector=False):
         super().__init__()
         self._batch_size = batch_size
         self._rnn_num_layers = rnn_num_layers
@@ -336,7 +337,10 @@ class ScopeGrammarLanguageModel(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_state_size, keyword_size)).cuda(GPU_INDEX)
         self._initial_state = self.initial_state()
-        self._begin_stack = self._new_begin_stack()
+        self._random_init_stack_vector = random_init_stack_vector
+        if random_init_stack_vector:
+            self._normal = torch.distributions.normal.Normal(0.0, 1.0)
+        self._begin_stack = self._new_begin_stack(random_init_stack_vector)
 
     def initial_state(self):
         return (nn.Parameter(torch.randn((self._rnn_num_layers, self._batch_size, self._hidden_state_size)),
@@ -368,7 +372,13 @@ class ScopeGrammarLanguageModel(nn.Module):
         update_gate = self.scope_stack_update_gate(scope_update_input)
         update_value = self.scope_stack_update_value(scope_update_input)
         scope_stack = scope_stack * (1 - update_gate) + update_gate * update_value
-        scope_stack.masked_fill_(update_mask.unsqueeze(2), 0)
+        update_mask = ~update_mask
+        if not self._random_init_stack_vector:
+            scope_stack.masked_fill_(update_mask.unsqueeze(2), 0)
+        else:
+            update_mask = update_mask.unsqueeze(2).float()
+            scope_stack = update_mask * self._new_begin_stack(self._random_init_stack_vector)[:update_mask.shape[0], :,
+                                        :] + (1 - update_mask) * scope_stack
         return scope_stack
 
     def _forward_rnn(self,
@@ -420,8 +430,12 @@ class ScopeGrammarLanguageModel(nn.Module):
         #     print(t.size())
         return torch.cat(output, dim=0)
 
-    def _new_begin_stack(self):
-        return torch.zeros((self._batch_size, self._stack_size, self._hidden_state_size)).cuda(GPU_INDEX)
+    def _new_begin_stack(self, random_init_stack_vector):
+        if not random_init_stack_vector:
+            return torch.zeros((self._batch_size, self._stack_size, self._hidden_state_size)).cuda(GPU_INDEX)
+        else:
+            return self._normal.sample(torch.Size([self._batch_size, self._stack_size, self._hidden_state_size])).cuda(
+                GPU_INDEX)
 
     def forward(self,
                 tokens,
@@ -580,7 +594,8 @@ def train_and_evaluate(data,
                        epoches,
                        saved_name,
                        stack_size,
-                       load_previous_model=False):
+                       load_previous_model=False,
+                       random_init_stack_vector=False):
     save_path = os.path.join(config.save_model_root, saved_name)
     # for d in data:
     #     def get_i(i):
@@ -599,6 +614,7 @@ def train_and_evaluate(data,
         keyword_num,
         stack_size,
         batch_size,
+        random_init_stack_vector=random_init_stack_vector
     )
     optimizer = optim.SGD(model.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
@@ -941,10 +957,15 @@ if __name__ == '__main__':
     #                    stack_size, load_previous_model = False)
     # The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
 
-    train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 1, 0.01, 50, "scope_grammar_language_model_4.pkl",
-                       stack_size, load_previous_model=False)
+    # train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 1, 0.01, 50, "scope_grammar_language_model_4.pkl",
+    #                    stack_size, load_previous_model=False)
     # The model c89_grammar_lm_4.pkl best valid perplexity is 0 and test perplexity is 0
 
     # train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 5, 0.01, 50, "scope_grammar_language_model_5.pkl",
     #                    stack_size, load_previous_model=False)
     # The model c89_grammar_lm_5.pkl best valid perplexity is 0 and test perplexity is 0
+    # print(data[0]['code'][0])
+    train_and_evaluate(data, keyword_num, vocabulary, 16, 100, 100, 3, 0.01, 50,
+                       "scope_grammar_language_model_1_with_random_init.pkl",
+                       stack_size,
+                       load_previous_model=False, random_init_stack_vector=True)
