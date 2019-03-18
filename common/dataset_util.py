@@ -1,5 +1,3 @@
-from pycparser.ply.lex import LexToken
-
 from common.action_constants import ActionType
 from common.analyse_include_util import extract_include, replace_include_with_blank
 from common.generate_token_util import generate_mark_token_action

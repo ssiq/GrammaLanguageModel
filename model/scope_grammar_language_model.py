@@ -37,7 +37,7 @@ from read_data.read_example_code import read_code_from_file
 
 BEGIN, END, UNK = ["<BEGIN>", "<END>", "<UNK>"]
 PAD_TOKEN = -1
-GPU_INDEX = 1
+GPU_INDEX = 0
 MAX_LENGTH = 500
 IDENTIFIER_BEGIN_INDEX = 84
 
@@ -518,7 +518,7 @@ def train(model,
 
         # print("loss：{}".format(loss.data))
         total_loss += loss.data
-        steps += torch.sum(lengths.data)
+        steps += torch.sum(lengths.float().cuda(GPU_INDEX).data)
     return total_loss / steps
 
 
@@ -565,7 +565,7 @@ def evaluate(model,
 
         loss = loss_function(batch_log_probs, target.view(-1))
         total_loss += loss.data
-        steps += torch.sum(lengths.data)
+        steps += torch.sum(lengths.float().cuda(GPU_INDEX).data)
     return total_loss / steps
 
 
@@ -676,7 +676,7 @@ def get_transform(stack_size):
 
 # @disk_cache(basename="scope_grammar_language_model_load_parsed_data", directory=CACHE_DATA_PATH)
 def load_parsed_data(stack_size):
-    data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name()
+    data = read_monitored_parsed_c99_slk_top_down_code_without_consistent_name(True)
     for d, n in zip(data, ["train", "val", "test"]):
         print("There are {} raw data in the {} dataset".format(len(d), n))
     res = [0] * 3
@@ -919,14 +919,15 @@ if __name__ == '__main__':
 
     stack_size = 10
     # code = read_code_from_file()
+    data, keyword_num, vocabulary = load_parsed_data(stack_size)
     # data, keyword_num, vocabulary, codes = load_test_data(stack_size)
-    data, keyword_num, vocabulary, codes = load_example_code_for_(stack_size)
+    # data, keyword_num, vocabulary, codes = load_example_code_for_(stack_size)
     # predict_on_one_code(code, keyword_num, vocabulary, 2, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
     #               stack_size,
     #               load_previous_model=True)
-    only_evaluate(data, codes, keyword_num, vocabulary, 2, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
-                  stack_size,
-                  load_previous_model=True)
+    # only_evaluate(data, codes, keyword_num, vocabulary, 2, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
+    #               stack_size,
+    #               load_previous_model=True)
     # print(data[0]['code'][0])
     # train_and_evaluate(data, keyword_num, vocabulary, 16, 100, 100, 3, 0.01, 50, "scope_grammar_language_model_1.pkl",
     #                    stack_size,
@@ -939,3 +940,11 @@ if __name__ == '__main__':
     # train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 3, 0.01, 50, "scope_grammar_language_model_3.pkl",
     #                    stack_size, load_previous_model = False)
     # The model c89_grammar_lm_3.pkl best valid perplexity is 2.888122797012329 and test perplexity is 2.8750290870666504
+
+    train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 1, 0.01, 50, "scope_grammar_language_model_4.pkl",
+                       stack_size, load_previous_model=False)
+    # The model c89_grammar_lm_4.pkl best valid perplexity is 0 and test perplexity is 0
+
+    # train_and_evaluate(data, keyword_num, vocabulary, 16, 300, 300, 5, 0.01, 50, "scope_grammar_language_model_5.pkl",
+    #                    stack_size, load_previous_model=False)
+    # The model c89_grammar_lm_5.pkl best valid perplexity is 0 and test perplexity is 0
